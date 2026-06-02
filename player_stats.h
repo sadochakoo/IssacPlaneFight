@@ -216,6 +216,33 @@ const Item ITEM_POOL[ITEM_COUNT] = {
         {0, 0, 0,    0,    0,   0,   0,   0,   false,-1,  false,false,false,false,true, false} },
 };
 
+// ==================== 敌人类型枚举 ====================
+/*
+ * EnemyType - 敌人类型枚举（v2.9 分层难度系统）
+ *
+ * 7 种敌人类型，按层级逐步解锁
+ * 参考东方幻想乡弹幕设计
+ *
+ * 类型说明：
+ *   NORMAL:        普通敌人，直线下落，单发瞄准子弹
+ *   DOUBLE_SHOOT:  双发弹幕，向玩家发射×2 子弹
+ *   TRACKING:      追踪敌人，向玩家加速移动
+ *   ELITE:         精英敌人，追踪移动 + ×3 子弹
+ *   BLOOM:         开花弹幕（东方风格），圆形散射子弹
+ *   SPIRAL:        螺旋弹幕（东方风格），旋转螺旋子弹
+ *   SPIRAL_ELITE:  螺旋精英，追踪移动 + 螺旋子弹
+ */
+enum EnemyType {
+    ENEMY_NORMAL       = 0,   // 普通
+    ENEMY_DOUBLE_SHOOT = 1,   // 双发弹幕
+    ENEMY_TRACKING     = 2,   // 追踪
+    ENEMY_ELITE        = 3,   // 精英（追踪+三发）
+    ENEMY_BLOOM        = 4,   // 开花弹幕
+    ENEMY_SPIRAL       = 5,   // 螺旋弹幕
+    ENEMY_SPIRAL_ELITE = 6,   // 螺旋精英（追踪+螺旋）
+    ENEMY_TYPE_COUNT   = 7
+};
+
 // ==================== 子弹结构体 ====================
 /*
  * Bullet - 子弹结构体
@@ -229,6 +256,7 @@ struct Bullet {
     float life;            // 剩余生命（秒），到期销毁
     bool  tracking;        // 是否为追踪子弹
     int   target_enemy;    // 追踪目标敌人索引，-1 表示无目标
+    sf::Color bullet_color; // 子弹颜色（v2.9，用于区分弹幕类型）
 };
 
 // ==================== 道具拾取物结构体 ====================
@@ -259,6 +287,9 @@ struct Enemy {
     int   width, height;   // 碰撞检测宽高（像素）
     int   score;           // 击杀分数
     sf::Color color;       // 敌人颜色（区分类型）
+    int   enemy_type;      // 敌人类型（EnemyType 枚举）
+    float shoot_timer;     // 独立射击冷却计时器（秒）
+    float spiral_angle;    // 螺旋弹幕旋转角度（弧度）
 };
 
 // ==================== 粒子结构体 ====================

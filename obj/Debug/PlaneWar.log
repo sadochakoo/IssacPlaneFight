@@ -1,0 +1,8 @@
+﻿D:\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(534,5): warning MSB8028: 中间目录(E:\cs\code\26c++\IssacPlaneFight\obj\Debug\)包含从另一个项目(飞机大战以撒版.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。
+  main.cpp
+E:\cs\code\26c++\IssacPlaneFight\main.cpp(38,10): error C1083: 无法打开包括文件: “SFML/Graphics.hpp”: No such file or directory
+  level_up_panel.cpp
+E:\cs\code\26c++\IssacPlaneFight\level_up_panel.h(17,10): error C1083: 无法打开包括文件: “SFML/Graphics.hpp”: No such file or directory
+  (编译源文件“level_up_panel.cpp”)
+  
+  正在生成代码...

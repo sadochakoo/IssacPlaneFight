@@ -1,10 +1,22 @@
 ﻿/*
  * main.cpp - 飞机大战：以撒的结合 风格重制
- * 版本：v2.3 (2026-06-02)
+ * 版本：v3.1 (2026-06-02)
  * 技术栈：C++17 / SFML 2.6.x
  * 平台：Windows x64 (Visual Studio 2022)
  *
  * 更新日志：
+ *   v3.1 - 简化波次：每层1波，打完休息进下一层
+ *          每层敌人数 = 8 + 层数×5（L1=13, L6=38）
+ *          清除后休息 3.5 秒，未升级则刷新本层
+ *   v3.0 - 波次系统：替代持续刷怪，PvZ式一波一波来
+ *          消灭当前波全部敌人后休息 3.5 秒
+ *          每层 3-8 波（L1=3, L6=8），波内敌人渐次增多
+ *          波间公告文字："一大波敌人即将来袭！"
+ *   v2.9 - 分层怪物难度系统：6层递增，7种敌人类型，东方弹幕设计
+ *          层数=player_level，敌人数量×1.5/层，L1-L6逐层解锁新敌人
+ *          开花弹（圆形散射）、螺旋弹（旋转弹幕）、追踪移动、精英怪
+ *   v2.8 - 敌人击杀分值减半（50→25 基数, 30→15 乘数）
+ *   v2.5 - 掉落间隔 4000→8000, 掉率 15%→8%
  *   v2.3 - 掉落间隔改为固定 4000 分
  *   v2.2 - 掉落门槛提高：首掉1500分，间隔1200分
  *   v2.1 - 道具掉落增加分数门槛（首掉1000分，每次+800分递增）
@@ -19,6 +31,8 @@
  * 3. 升级三选一 UI 面板
  * 4. 定时效果系统（追踪/隐形/护盾/伤害增强）
  * 5. 粒子特效、分数系统
+ * 6. v2.9 分层难度：6层递进、7种敌人、东方弹幕
+ * 7. v3.1 简化波次：每层1波，打完休息进下一层
  */
 
 #include <SFML/Graphics.hpp>      // 图形渲染（窗口、形状、文字）
@@ -96,8 +110,9 @@ std::vector<Particle> particles;
 int game_score = 0;
 
 // 升级阈值（分数达到阈值时触发升级）
-int next_level_threshold = 500;
+int next_level_threshold = 800;
 int player_level = 1;
+int score_at_level_start = 0;     // 本等级开始时的分数（用于进度条回零）
 
 // 敌人生成计时器
 float enemy_spawn_timer = 0.f;
@@ -110,7 +125,32 @@ float enemy_shoot_interval = 2.0f;  // 基础射击间隔（随分数连续递�
 // 道具掉落冷却（防止短时间内连续掉落）
 float item_drop_cooldown = 20.f;     // 两次掉落最少间隔 20 秒
 float item_drop_timer = 0.f;         // 当前冷却计时器
-int   next_drop_score = 4000;        // 达到此分数后才允许掉落，掉落后递增
+int   next_drop_score = 8000;        // 达到此分数后才允许掉落，掉落后递增
+
+// ==================== 波次系统 (v3.1) ====================
+/*
+ * 波次系统设计思路：
+ *   模仿《植物大战僵尸》的节奏感
+ *   每层 = 1 波大敌人，打完休息后进入下一层
+ *   如果清完敌人但分数还不够升级，则刷新本层再战
+ *   替代 v2.9 的持续不停刷怪模式
+ *
+ * 变量说明：
+ *   enemies_in_wave:       本波计划生成的敌人总数
+ *   enemies_spawned_this_wave: 已生成数（≤ enemies_in_wave）
+ *   wave_active:           当前波是否正在进行中
+ *   wave_pause:            是否处于波间休息
+ *   wave_pause_timer:      波间休息倒计时（秒）
+ *   wave_spawn_timer:      波内敌人生成间隔计时器（秒）
+ *   prev_player_level:     上一帧的玩家等级（用于检测升级）
+ */
+int   enemies_in_wave = 0;
+int   enemies_spawned_this_wave = 0;
+bool  wave_active = false;
+bool  wave_pause = true;          // 首波前也有一段准备时间
+float wave_pause_timer = 2.0f;    // 首波前准备 2 秒
+float wave_spawn_timer = 0.f;
+int   prev_player_level = 1;
 
 // ==================== SFML 全局对象 ====================
 // 游戏字体（用于 UI 文字）
@@ -179,49 +219,209 @@ void spawn_particles(float x, float y, sf::Color color, int count) {
     }
 }
 
+// ==================== 分层难度系统 (v2.9) ====================
+
+/*
+ * 分层概率数据结构
+ * 每个 float 表示该类型敌人占生成总数的比例（0~1）
+ */
+struct LayerProbs {
+    float normal;       float double_shoot;
+    float tracking;     float elite;
+    float bloom;        float spiral;
+    float spiral_elite;
+};
+
+/*
+ * get_layer_probs() - 获取当前层的敌人类型概率分布
+ *
+ * 层=player_level，上限裁剪到 6
+ * 概率严格遵循用户规格 + 东方风格扩展
+ *
+ * 概率分布（总和=1.0）：
+ *   L1: 普通 90%, 双发 10%
+ *   L2: 普通 75%, 双发 10%, 追踪 15%
+ *   L3: 普通 65%, 双发 10%, 追踪 15%, 精英 10%
+ *   L4: 普通 45%, 双发 10%, 追踪 15%, 精英 10%, 开花 20%
+ *   L5: 普通 30%, 追踪 10%, 精英 10%, 开花 20%, 螺旋 15%, 螺旋精英 15%
+ *   L6: 普通 20%, 追踪 10%, 精英 10%, 开花 20%, 螺旋 20%, 螺旋精英 20%
+ */
+LayerProbs get_layer_probs(int layer) {
+    if (layer >= 6) return {0.20f, 0.f, 0.10f, 0.10f, 0.20f, 0.20f, 0.20f};
+    if (layer == 5) return {0.30f, 0.f, 0.10f, 0.10f, 0.20f, 0.15f, 0.15f};
+    if (layer == 4) return {0.45f, 0.10f, 0.15f, 0.10f, 0.20f, 0.f, 0.f};
+    if (layer == 3) return {0.65f, 0.10f, 0.15f, 0.10f, 0.f, 0.f, 0.f};
+    if (layer == 2) return {0.75f, 0.10f, 0.15f, 0.f, 0.f, 0.f, 0.f};
+    return {0.90f, 0.10f, 0.f, 0.f, 0.f, 0.f, 0.f};  // L1
+}
+
+/*
+ * determine_enemy_type() - 根据层数概率随机决定敌人类型
+ *
+ * 参数：layer - 当前层数（1-6，超出按 6 处理）
+ * 返回值：EnemyType 枚举
+ *
+ * 算法：生成 [0, 100) 浮点数，按概率累积判定
+ */
+EnemyType determine_enemy_type(int layer) {
+    LayerProbs p = get_layer_probs(layer);
+    float roll = random_float(0.f, 100.f);
+    float accum = 0.f;
+
+    // 累积概率判定（从最稀有到最常见）
+    accum += p.spiral_elite * 100.f;
+    if (roll < accum) return ENEMY_SPIRAL_ELITE;
+    accum += p.spiral * 100.f;
+    if (roll < accum) return ENEMY_SPIRAL;
+    accum += p.bloom * 100.f;
+    if (roll < accum) return ENEMY_BLOOM;
+    accum += p.elite * 100.f;
+    if (roll < accum) return ENEMY_ELITE;
+    accum += p.tracking * 100.f;
+    if (roll < accum) return ENEMY_TRACKING;
+    accum += p.double_shoot * 100.f;
+    if (roll < accum) return ENEMY_DOUBLE_SHOOT;
+    return ENEMY_NORMAL;
+}
+
+// ==================== 波次系统核心函数 (v3.1) ====================
+
+/*
+ * calc_enemies_for_layer() - 计算本层（1波）的敌人总数
+ *
+ * 公式：8 + layer × 5
+ *   L1: 13   L2: 18   L3: 23
+ *   L4: 28   L5: 33   L6: 38
+ */
+int calc_enemies_for_layer(int layer) {
+    return 8 + layer * 5;
+}
+
+/*
+ * init_layer_waves() - 初始化本层的波次
+ *
+ * 进入新层时调用（游戏开始或升级后）
+ * 设置敌人数量，准备短暂开场暂停
+ */
+void init_layer_waves() {
+    enemies_in_wave = calc_enemies_for_layer(player_level);
+    enemies_spawned_this_wave = 0;
+    wave_active = false;
+    wave_pause = true;
+    wave_pause_timer = 2.5f;  // 新层开始前 2.5 秒准备时间
+    wave_spawn_timer = 0.f;
+}
+
+/*
+ * start_layer_wave() - 开始本层唯一的波次
+ */
+void start_layer_wave() {
+    enemies_in_wave = calc_enemies_for_layer(player_level);
+    enemies_spawned_this_wave = 0;
+    wave_active = true;
+    wave_pause = false;
+    wave_pause_timer = 0.f;
+    wave_spawn_timer = 0.f;
+}
+
+/*
+ * start_wave_pause() - 波间休息
+ *
+ * 当前波所有敌人被消灭后，休息 3.5 秒
+ */
+void start_wave_pause() {
+    wave_active = false;
+    wave_pause = true;
+    wave_pause_timer = 3.5f;
+}
+
 // ==================== 敌人生成系统 ====================
 
 /*
- * spawn_enemy() - 生成一个敌人
+ * spawn_enemy() - 生成一个敌人（v2.9 分层难度版）
  *
- * 敌人在屏幕上方随机位置生成，向下移动
- * 难度随分数提升：
- * - 基础 HP 1~3
- * - 每 500 分 +1 HP
+ * 难度随玩家等级递增：
+ * - 敌人类型按层数概率分布随机选择
+ * - HP = 层数基础 × 类型倍率
+ * - 速度随层数增加
+ * - 分数随类型和层数增加
+ * - 外观颜色区分类型
  */
 void spawn_enemy() {
     Enemy e;
     e.x = random_float(50.f, 750.f);
     e.y = -30.f;
 
-    // 难度递增：每 250 分敌人全面增强
-    int bonus_hp = game_score / 250;
+    // 裁剪层数到有效范围
+    int layer = player_level;
+    if (layer < 1) layer = 1;
+    if (layer > 6) layer = 6;
 
-    // HP：基础 1~3 + 分数加成
-    e.max_hp = 1 + bonus_hp + random_int(1, 3);
+    // === 根据层数概率随机决定敌人类型 ===
+    e.enemy_type = determine_enemy_type(layer);
+
+    // === 属性计算 ===
+    // 基础 HP：随层数增加
+    int base_hp = 1 + layer;
+
+    // 类型倍率（精英和弹幕型更耐打）
+    float type_hp_mult = 1.0f;
+    int type_score = 25;
+    sf::Color type_color = sf::Color(255, 100, 100);  // 默认红色
+    int type_width = 30, type_height = 30;
+
+    switch (e.enemy_type) {
+        case ENEMY_DOUBLE_SHOOT:
+            type_hp_mult = 1.2f; type_score = 35;
+            type_color = sf::Color(255, 160, 60);        // 橙色
+            break;
+        case ENEMY_TRACKING:
+            type_hp_mult = 1.2f; type_score = 35;
+            type_color = sf::Color(180, 60, 220);         // 紫色
+            break;
+        case ENEMY_ELITE:
+            type_hp_mult = 2.0f; type_score = 60;
+            type_color = sf::Color(180, 30, 30);          // 暗红
+            type_width = 36; type_height = 36;
+            break;
+        case ENEMY_BLOOM:
+            type_hp_mult = 1.5f; type_score = 45;
+            type_color = sf::Color(60, 180, 255);         // 天蓝
+            break;
+        case ENEMY_SPIRAL:
+            type_hp_mult = 1.3f; type_score = 50;
+            type_color = sf::Color(60, 220, 120);         // 绿色
+            break;
+        case ENEMY_SPIRAL_ELITE:
+            type_hp_mult = 2.5f; type_score = 80;
+            type_color = sf::Color(30, 180, 60);          // 深绿
+            type_width = 36; type_height = 36;
+            break;
+        default:  // ENEMY_NORMAL
+            type_hp_mult = 1.0f; type_score = 25;
+            break;
+    }
+
+    // 最终属性
+    e.max_hp = static_cast<int>(base_hp * type_hp_mult) + random_int(0, 1);
     e.hp = e.max_hp;
+    e.color = type_color;
+    e.width = type_width;
+    e.height = type_height;
+    e.score = type_score + layer * 5;  // 层数加成
 
-    // 下落速度随分数递增（更快更危险）
-    e.vy = random_float(100.f, 150.f) + bonus_hp * 15.f;
+    // 下落速度：基础 + 层数加成
+    e.vy = random_float(70.f, 120.f) + layer * 12.f;
 
-    // 横向飘移也随分数加大（更难躲避）
-    float drift = 40.f + bonus_hp * 6.f;
+    // 横向飘移
+    float drift = 30.f + static_cast<float>(layer) * 10.f;
     e.vx = random_float(-drift, drift);
 
-    e.width = 30;
-    e.height = 30;
-    e.score = 50 + bonus_hp * 30;
+    // 初始化射击计时器（随机错开，避免所有敌人同时开火）
+    e.shoot_timer = random_float(0.f, 1.5f);
 
-    // 根据血量设置颜色（颜色越深越危险）
-    if (e.max_hp <= 2) {
-        e.color = sf::Color(255, 100, 100);     // 红色（简单）
-    } else if (e.max_hp <= 5) {
-        e.color = sf::Color(200, 50, 150);       // 紫色（中等）
-    } else if (e.max_hp <= 10) {
-        e.color = sf::Color(180, 30, 100);       // 深紫（困难）
-    } else {
-        e.color = sf::Color(150, 20, 30);        // 暗红（地狱）
-    }
+    // 初始化螺旋角度
+    e.spiral_angle = random_float(0.f, 6.28318f);
 
     enemies.push_back(e);
 }
@@ -241,11 +441,11 @@ void spawn_item_pickup(float x, float y) {
     if (game_score < next_drop_score) return;
     // 冷却期间不掉落
     if (item_drop_timer > 0.f) return;
-    if (random_float(0.f, 100.f) > 15.0f) return;  // 15% 掉落率
+    if (random_float(0.f, 100.f) > 8.0f) return;  // 8% 掉落率
 
     // 触发冷却计时 + 提高下次掉落门槛
     item_drop_timer = item_drop_cooldown;
-    next_drop_score = game_score + 4000;  // 下次掉落需要再得 4000 分
+    next_drop_score = game_score + 8000;  // 下次掉落需要再得 8000 分
 
     PowerUp p;
     p.x = x;
@@ -322,14 +522,19 @@ Player* reset_game(Player& player) {
 
     // 重置全局变量
     game_score = 0;
-    next_level_threshold = 500;
+    next_level_threshold = 800;
     player_level = 1;
     enemy_spawn_timer = 0.f;
     enemy_shoot_timer = 0.f;
     enemy_spawn_interval = 2.5f;
     enemy_shoot_interval = 2.0f;
     item_drop_timer = 0.f;           // 重置掉落冷却
-    next_drop_score = 4000;          // 重置掉落分数门槛
+    next_drop_score = 8000;          // 重置掉落分数门槛
+    score_at_level_start = 0;        // 重置等级起始分
+
+    // v3.0 波次系统初始化
+    init_layer_waves();
+    prev_player_level = 1;
 
     return &player;
 }
@@ -569,6 +774,9 @@ int main() {
                         // 检测追踪状态
                         bullet.tracking = (player.tracking_timer > 0);
                         bullet.target_enemy = -1;
+                        bullet.bullet_color = (player.tracking_timer > 0)
+                            ? sf::Color(255, 100, 255)   // 追踪 → 粉色
+                            : sf::Color(100, 200, 255);  // 普通 → 淡蓝
                         bullets.push_back(bullet);
                     }
 
@@ -583,6 +791,7 @@ int main() {
                             bullet.life = static_cast<float>(player.stats.range);
                             bullet.tracking = false;
                             bullet.target_enemy = -1;
+                            bullet.bullet_color = sf::Color(255, 200, 200, 200);
                             bullets.push_back(bullet);
 
                             bullet.x = player.pos.x - 50.f;
@@ -640,6 +849,26 @@ int main() {
 
                 // --- 更新敌人 ---
                 for (size_t i = 0; i < enemies.size(); ) {
+                    // === 追踪型敌人：向玩家加速移动 ===
+                    if (enemies[i].enemy_type == ENEMY_TRACKING ||
+                        enemies[i].enemy_type == ENEMY_ELITE ||
+                        enemies[i].enemy_type == ENEMY_SPIRAL_ELITE) {
+                        float dx = player.pos.x - enemies[i].x;
+                        float dy = player.pos.y - enemies[i].y;
+                        float dist = std::sqrt(dx * dx + dy * dy);
+                        if (dist > 1.f) {
+                            // 平滑追踪：速度逐渐转向玩家方向
+                            float track_speed = 60.f + static_cast<float>(player_level) * 10.f;
+                            float target_vx = dx / dist * track_speed;
+                            float target_vy = dy / dist * track_speed;
+                            // 插值系数（追踪弹性）
+                            float lerp = 2.5f * dt;
+                            enemies[i].vx += (target_vx - enemies[i].vx) * lerp;
+                            enemies[i].vy += (target_vy - enemies[i].vy) * lerp;
+                        }
+                    }
+
+                    // 移动敌人
                     enemies[i].x += enemies[i].vx * dt;
                     enemies[i].y += enemies[i].vy * dt;
 
@@ -749,43 +978,167 @@ int main() {
                 // --- 更新道具掉落冷却 ---
                 if (item_drop_timer > 0.f) item_drop_timer -= dt;
 
-                // --- 敌人生成（间隔随分数连续递减）---
-                enemy_spawn_timer += dt;
-                // 生成间隔：从 2.5 秒线性递减到最低 0.35 秒
-                float dynamic_spawn_interval = std::max(0.35f, 2.5f - game_score * 0.0004f);
-                if (enemy_spawn_timer >= dynamic_spawn_interval) {
-                    enemy_spawn_timer = 0.f;
-                    spawn_enemy();
-                    // 高分时一次生成多个敌人
-                    if (game_score > 3000 && random_float(0.f, 1.f) < 0.3f) spawn_enemy();
-                    if (game_score > 6000 && random_float(0.f, 1.f) < 0.2f) spawn_enemy();
+                // --- 波次系统 (v3.1 每层1波) ---
+                // 检测玩家升级：进入新层时重新初始化波次
+                if (player_level != prev_player_level) {
+                    prev_player_level = player_level;
+                    init_layer_waves();
                 }
 
-                // --- 敌人射击（间隔 + 弹速均随分数递增）---
-                enemy_shoot_timer += dt;
-                float dynamic_shoot_interval = std::max(0.3f, 2.0f - game_score * 0.0003f);
-                if (enemy_shoot_timer >= dynamic_shoot_interval) {
-                    enemy_shoot_timer = 0.f;
-                    for (auto& enemy : enemies) {
-                        Bullet eb;
-                        eb.x = enemy.x;
-                        eb.y = enemy.y + 15.f;
-                        // 瞄准玩家方向
-                        float dx = player.pos.x - enemy.x;
-                        float dy = player.pos.y - enemy.y;
-                        float dist = std::sqrt(dx * dx + dy * dy);
-                        // 弹速随分数递增：最快 550
-                        float speed = 200.f + std::min(350.f, game_score * 0.08f);
-                        if (dist > 1.f) {
-                            eb.vx = dx / dist * speed;
-                            eb.vy = dy / dist * speed;
-                        } else {
-                            eb.vx = 0.f;
-                            eb.vy = speed;
+                if (wave_pause) {
+                    // 波间休息：倒计时，到零则开启本层波次
+                    wave_pause_timer -= dt;
+                    if (wave_pause_timer <= 0.f) {
+                        start_layer_wave();
+                    }
+                } else if (wave_active) {
+                    // 当前波进行中：按间隔逐一生成敌人
+                    if (enemies_spawned_this_wave < enemies_in_wave) {
+                        wave_spawn_timer += dt;
+                        float spawn_delay = 0.6f;
+                        if (wave_spawn_timer >= spawn_delay) {
+                            wave_spawn_timer = 0.f;
+                            spawn_enemy();
+                            enemies_spawned_this_wave++;
+                            // 最后 3 个敌人快速连续生成（"一大波"效果）
+                            int remaining = enemies_in_wave - enemies_spawned_this_wave;
+                            if (remaining <= 3 && remaining > 0) {
+                                spawn_enemy();
+                                enemies_spawned_this_wave++;
+                            }
                         }
-                        eb.life = 3.f;  // 敌人子弹存活 3 秒
-                        eb.tracking = false;
-                        enemy_bullets.push_back(eb);
+                    } else {
+                        // 所有敌人已生成，等待玩家全部清掉
+                        if (enemies.empty() && enemy_bullets.empty()) {
+                            // 检查是否已升级（升级面板触发时 player_level 可能已变）
+                            if (player_level != prev_player_level) {
+                                prev_player_level = player_level;
+                                init_layer_waves();
+                            } else {
+                                start_wave_pause();
+                            }
+                        }
+                    }
+                }
+
+                // --- 敌人射击（v2.9 独立计时器 + 东方弹幕模式）---
+                // 每个敌人有自己的 shoot_timer，按类型执行不同的弹幕模式
+                float pad = 6.28318f;  // 2*PI 简写
+                for (auto& enemy : enemies) {
+                    enemy.shoot_timer -= dt;
+
+                    // 根据敌人类型设定射击间隔
+                    float shoot_interval = 2.0f;
+                    switch (enemy.enemy_type) {
+                        case ENEMY_NORMAL:       shoot_interval = 2.0f; break;
+                        case ENEMY_DOUBLE_SHOOT: shoot_interval = 2.5f; break;
+                        case ENEMY_TRACKING:     shoot_interval = 2.0f; break;
+                        case ENEMY_ELITE:        shoot_interval = 1.5f; break;
+                        case ENEMY_BLOOM:        shoot_interval = 1.8f; break;
+                        case ENEMY_SPIRAL:       shoot_interval = 0.12f; break;
+                        case ENEMY_SPIRAL_ELITE: shoot_interval = 0.15f; break;
+                    }
+
+                    // 每层射击间隔加速 5%
+                    shoot_interval *= std::max(0.5f, 1.f - float(player_level - 1) * 0.05f);
+
+                    if (enemy.shoot_timer > 0.f) continue;
+                    enemy.shoot_timer = shoot_interval;
+
+                    // 基础弹速（随层数递增）
+                    float spd = 180.f + float(player_level) * 15.f;
+                    float dx = player.pos.x - enemy.x;
+                    float dy = player.pos.y - enemy.y;
+                    float dist = std::sqrt(dx * dx + dy * dy);
+                    if (dist < 1.f) dist = 1.f;
+
+                    switch (enemy.enemy_type) {
+                        case ENEMY_NORMAL: {
+                            // 普通：单发瞄准子弹
+                            Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
+                            eb.vx = dx / dist * spd; eb.vy = dy / dist * spd;
+                            eb.life = 3.f; eb.tracking = false;
+                            eb.bullet_color = sf::Color(255, 150, 50);
+                            enemy_bullets.push_back(eb);
+                            break;
+                        }
+                        case ENEMY_DOUBLE_SHOOT: {
+                            // 双发弹幕：2 发带 ±10° 扩散
+                            float ba = std::atan2(dy, dx);
+                            for (int j = -1; j <= 1; j += 2) {
+                                float a = ba + float(j) * 0.175f;
+                                Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
+                                eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
+                                eb.life = 3.f; eb.tracking = false;
+                                eb.bullet_color = sf::Color(255, 180, 80);
+                                enemy_bullets.push_back(eb);
+                            }
+                            break;
+                        }
+                        case ENEMY_TRACKING: {
+                            // 追踪敌人：单发瞄准
+                            Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
+                            eb.vx = dx / dist * spd; eb.vy = dy / dist * spd;
+                            eb.life = 3.f; eb.tracking = false;
+                            eb.bullet_color = sf::Color(200, 100, 240);
+                            enemy_bullets.push_back(eb);
+                            break;
+                        }
+                        case ENEMY_ELITE: {
+                            // 精英：3 发带 ±15° 扩散
+                            float ba = std::atan2(dy, dx);
+                            for (int j = -1; j <= 1; ++j) {
+                                float a = ba + float(j) * 0.262f;
+                                Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
+                                eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
+                                eb.life = 3.f; eb.tracking = false;
+                                eb.bullet_color = sf::Color(220, 60, 40);
+                                enemy_bullets.push_back(eb);
+                            }
+                            break;
+                        }
+                        case ENEMY_BLOOM: {
+                            // 开花弹：圆形散射（东方风格），子弹数 8+层数×2
+                            int cnt = 8 + player_level * 2;
+                            float off = random_float(0.f, pad);
+                            for (int j = 0; j < cnt; ++j) {
+                                float a = off + float(j) * pad / float(cnt);
+                                Bullet eb; eb.x = enemy.x; eb.y = enemy.y;
+                                eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
+                                eb.life = 2.5f; eb.tracking = false;
+                                eb.bullet_color = sf::Color(60, 180, 255, 220);
+                                enemy_bullets.push_back(eb);
+                            }
+                            break;
+                        }
+                        case ENEMY_SPIRAL: {
+                            // 螺旋弹：2 臂旋转，角度持续递增
+                            enemy.spiral_angle += 3.0f * dt;
+                            for (int arm = 0; arm < 2; ++arm) {
+                                float a = enemy.spiral_angle + float(arm) * 3.14159f;
+                                Bullet eb; eb.x = enemy.x; eb.y = enemy.y;
+                                eb.vx = std::cos(a) * spd * 0.8f;
+                                eb.vy = std::sin(a) * spd * 0.8f;
+                                eb.life = 2.0f; eb.tracking = false;
+                                eb.bullet_color = sf::Color(60, 220, 120, 200);
+                                enemy_bullets.push_back(eb);
+                            }
+                            break;
+                        }
+                        case ENEMY_SPIRAL_ELITE: {
+                            // 螺旋精英：3 臂旋转 + 追踪，角度更快
+                            enemy.spiral_angle += 4.0f * dt;
+                            for (int arm = 0; arm < 3; ++arm) {
+                                float a = enemy.spiral_angle + float(arm) * 2.0944f;
+                                Bullet eb; eb.x = enemy.x; eb.y = enemy.y;
+                                eb.vx = std::cos(a) * spd * 0.9f;
+                                eb.vy = std::sin(a) * spd * 0.9f;
+                                eb.life = 2.2f; eb.tracking = false;
+                                eb.bullet_color = sf::Color(30, 200, 80, 220);
+                                enemy_bullets.push_back(eb);
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -823,8 +1176,10 @@ int main() {
                 if (selected >= 0) {
                     // 玩家选择了道具，应用效果
                     player.apply_item(ITEM_POOL[selected].effect);
-                    // 提高下一级阈值（每级显著递增）
-                    next_level_threshold += 500 + player_level * 150;
+                    // 记录本等级起始分（用于进度条清零）
+                    score_at_level_start = game_score;
+                    // 提高下一级阈值（二次增长：前期间隔小、后期显著拉大）
+                    next_level_threshold += 500 + player_level * player_level * 80;
                     player_level++;
                     // 恢复游戏
                     game_state = GameState::PLAYING;
@@ -930,11 +1285,7 @@ int main() {
                     sf::RectangleShape rect(sf::Vector2f(6.f, 14.f));
                     rect.setOrigin(3.f, 7.f);
                     rect.setPosition(b.x, b.y);
-                    if (b.tracking) {
-                        rect.setFillColor(sf::Color(255, 100, 255));  // 追踪 → 粉色
-                    } else {
-                        rect.setFillColor(sf::Color(100, 200, 255));  // 普通 → 淡蓝
-                    }
+                    rect.setFillColor(b.bullet_color);
                     window.draw(rect);
                 }
 
@@ -943,23 +1294,75 @@ int main() {
                     sf::CircleShape circle(4.f);
                     circle.setOrigin(4.f, 4.f);
                     circle.setPosition(eb.x, eb.y);
-                    circle.setFillColor(sf::Color(255, 150, 50));  // 橙色
+                    circle.setFillColor(eb.bullet_color);
                     window.draw(circle);
                 }
 
                 // --- 绘制敌人 ---
                 for (auto& enemy : enemies) {
-                    sf::RectangleShape body(sf::Vector2f(
-                        static_cast<float>(enemy.width),
-                        static_cast<float>(enemy.height)));
-                    body.setOrigin(
-                        static_cast<float>(enemy.width) / 2.f,
-                        static_cast<float>(enemy.height) / 2.f);
-                    body.setPosition(enemy.x, enemy.y);
-                    body.setFillColor(enemy.color);
-                    body.setOutlineThickness(2.f);
-                    body.setOutlineColor(sf::Color(80, 80, 80));
-                    window.draw(body);
+                    // === 根据类型绘制不同外观 ===
+                    sf::Color outline_c = sf::Color(80, 80, 80);
+                    float outline_t = 2.f;
+
+                    switch (enemy.enemy_type) {
+                        case ENEMY_BLOOM: {
+                            // 开花型：圆形
+                            sf::CircleShape body(static_cast<float>(enemy.width) / 2.f);
+                            body.setOrigin(static_cast<float>(enemy.width) / 2.f,
+                                          static_cast<float>(enemy.width) / 2.f);
+                            body.setPosition(enemy.x, enemy.y);
+                            body.setFillColor(enemy.color);
+                            body.setOutlineThickness(outline_t);
+                            body.setOutlineColor(sf::Color(40, 120, 200));
+                            window.draw(body);
+                            break;
+                        }
+                        case ENEMY_SPIRAL:
+                        case ENEMY_SPIRAL_ELITE: {
+                            // 螺旋型：菱形
+                            sf::ConvexShape diamond;
+                            diamond.setPointCount(4);
+                            float hw = static_cast<float>(enemy.width) / 2.f;
+                            float hh = static_cast<float>(enemy.height) / 2.f;
+                            diamond.setPoint(0, sf::Vector2f(0.f, -hh));
+                            diamond.setPoint(1, sf::Vector2f(hw, 0.f));
+                            diamond.setPoint(2, sf::Vector2f(0.f, hh));
+                            diamond.setPoint(3, sf::Vector2f(-hw, 0.f));
+                            diamond.setPosition(enemy.x, enemy.y);
+                            diamond.setFillColor(enemy.color);
+                            diamond.setOutlineThickness(outline_t);
+                            diamond.setOutlineColor(sf::Color(30, 150, 60));
+                            window.draw(diamond);
+                            break;
+                        }
+                        default: {
+                            // 普通/双发/追踪/精英：矩形
+                            sf::RectangleShape body(sf::Vector2f(
+                                static_cast<float>(enemy.width),
+                                static_cast<float>(enemy.height)));
+                            body.setOrigin(
+                                static_cast<float>(enemy.width) / 2.f,
+                                static_cast<float>(enemy.height) / 2.f);
+                            body.setPosition(enemy.x, enemy.y);
+                            body.setFillColor(enemy.color);
+                            body.setOutlineThickness(outline_t);
+
+                            // 类型特化轮廓色
+                            switch (enemy.enemy_type) {
+                                case ENEMY_DOUBLE_SHOOT:
+                                    outline_c = sf::Color(200, 120, 30); break;
+                                case ENEMY_TRACKING:
+                                    outline_c = sf::Color(140, 40, 200); break;
+                                case ENEMY_ELITE:
+                                    outline_c = sf::Color(200, 20, 20); break;
+                                default:
+                                    outline_c = sf::Color(80, 80, 80); break;
+                            }
+                            body.setOutlineColor(outline_c);
+                            window.draw(body);
+                            break;
+                        }
+                    }
 
                     // 敌人血条（血量 > 1 时显示）
                     if (enemy.max_hp > 1) {
@@ -1001,6 +1404,43 @@ int main() {
                     window.draw(circle);
                 }
 
+                // --- 波次公告 (v3.1) ---
+                if (game_state == GameState::PLAYING && wave_pause && wave_pause_timer > 0.f) {
+                    // 半透明黑色遮罩条
+                    sf::RectangleShape banner_bg(sf::Vector2f(500.f, 60.f));
+                    banner_bg.setOrigin(250.f, 30.f);
+                    banner_bg.setPosition(400.f, 450.f);
+                    banner_bg.setFillColor(sf::Color(0, 0, 0, 160));
+                    window.draw(banner_bg);
+
+                    // 公告文字
+                    std::wstring wave_msg;
+                    if (wave_pause_timer > 2.0f) {
+                        wave_msg = L"第 " + std::to_wstring(player_level)
+                                 + L" 层已清除！";
+                    } else {
+                        wave_msg = L"第 " + std::to_wstring(player_level)
+                                 + L" 层 - 一大波敌人来袭！";
+                    }
+
+                    sf::Text wave_text(wave_msg, game_font, 26);
+                    wave_text.setFillColor(sf::Color(255, 220, 100));
+                    sf::FloatRect wtb = wave_text.getLocalBounds();
+                    wave_text.setOrigin(wtb.width / 2.f, wtb.height / 2.f);
+                    wave_text.setPosition(400.f, 440.f);
+                    window.draw(wave_text);
+
+                    // 倒计时
+                    sf::Text count_text(L"下一波倒计时: "
+                        + std::to_wstring(static_cast<int>(wave_pause_timer + 0.99f))
+                        + L" 秒", game_font, 16);
+                    count_text.setFillColor(sf::Color(200, 200, 200));
+                    wtb = count_text.getLocalBounds();
+                    count_text.setOrigin(wtb.width / 2.f, 0.f);
+                    count_text.setPosition(400.f, 462.f);
+                    window.draw(count_text);
+                }
+
                 // --- 绘制 UI ---
                 // 血量（红心）
                 draw_player_hp_hearts(window, player, 12.f, 52.f);
@@ -1017,9 +1457,12 @@ int main() {
                 level_text.setPosition(12.f, 32.f);
                 window.draw(level_text);
 
-                // 升级进度
-                float progress = static_cast<float>(game_score) /
-                                static_cast<float>(next_level_threshold);
+                // 升级进度（本等级内分数 / 本等级所需分数）
+                float level_needed = static_cast<float>(next_level_threshold - score_at_level_start);
+                float level_progress = static_cast<float>(game_score - score_at_level_start);
+                float progress = level_needed > 0.f ? level_progress / level_needed : 0.f;
+                if (progress > 1.f) progress = 1.f;
+                if (progress < 0.f) progress = 0.f;
                 sf::Text next_text(
                     L"下一级: " + std::to_wstring(next_level_threshold), game_font, 14);
                 next_text.setFillColor(sf::Color(150, 150, 150));
@@ -1057,8 +1500,9 @@ int main() {
                 exp_bar_bg.setFillColor(sf::Color(40, 40, 40));
                 window.draw(exp_bar_bg);
 
-                float fill_ratio = static_cast<float>(game_score % next_level_threshold) /
-                                  static_cast<float>(next_level_threshold);
+                float fill_ratio = level_progress / (level_needed > 0.f ? level_needed : 1.f);
+                if (fill_ratio > 1.f) fill_ratio = 1.f;
+                if (fill_ratio < 0.f) fill_ratio = 0.f;
                 sf::RectangleShape exp_bar_fill(sf::Vector2f(200.f * fill_ratio, 10.f));
                 exp_bar_fill.setPosition(300.f, 10.f);
                 exp_bar_fill.setFillColor(sf::Color(255, 200, 0));
