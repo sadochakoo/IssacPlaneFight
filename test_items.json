@@ -23,6 +23,30 @@
       }
     },
     {
+      "case_id": "test_05_brimstone_parasite",
+      "name": "硫磺火+寄生虫融合",
+      "description": "主激光命中后 Y 字分裂短激光",
+      "stats_modifier": {
+        "brimstone_level": 1,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "has_parasite": true
+      }
+    },
+    {
+      "case_id": "test_04_parasite",
+      "name": "寄生虫分裂测试",
+      "description": "命中后 V 字分裂，最多 3 代",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "has_parasite": true
+      }
+    },
+    {
       "case_id": "test_03_army_of_babies",
       "name": "宝宝大军满配",
       "description": "4个宝宝同时发射追踪弹幕",

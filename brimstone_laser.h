@@ -6,6 +6,7 @@
 #define BRIMSTONE_LASER_H
 
 #include "player_stats.h"
+#include "split_laser.h"
 #include <SFML/Graphics.hpp>
 #include <functional>
 #include <vector>
@@ -29,6 +30,7 @@ public:
         Player& player,
         std::vector<Enemy>& enemies,
         int damage,
+        std::vector<SplitLaser>& split_lasers,
         const std::function<void(const Enemy&)>& on_enemy_killed);
 
     // 蓄力圆环 + 光柱（直线 Rectangle 或 TriangleStrip 曲线）

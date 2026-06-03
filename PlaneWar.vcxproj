@@ -123,6 +123,8 @@
     <ClCompile Include="brimstone_laser.cpp" />
     <ClCompile Include="player_item.cpp" />
     <ClCompile Include="item_test_loader.cpp" />
+    <ClCompile Include="parasite_bullet.cpp" />
+    <ClCompile Include="split_laser.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -137,6 +139,8 @@
     <ClInclude Include="bullet_factory.h" />
     <ClInclude Include="brimstone_laser.h" />
     <ClInclude Include="item_test_loader.h" />
+    <ClInclude Include="parasite_bullet.h" />
+    <ClInclude Include="split_laser.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

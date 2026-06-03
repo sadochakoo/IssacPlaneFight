@@ -51,6 +51,9 @@ bool load_test_case(Player& player, const std::string& target_case_id) {
         player.stats.tracking_level  = mods.value("tracking_level", 0);
         player.stats.extra_bullets   = mods.value("extra_bullets", 0);
         player.stats.baby_count      = mods.value("baby_count", 0);
+        if (mods.contains("has_parasite")) {
+            player.stats.has_parasite = mods["has_parasite"].get<bool>();
+        }
 
         BrimstoneLaser::reset(player);
         BabySystem::syncCount(player);

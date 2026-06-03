@@ -1,4 +1,5 @@
 #include "baby_system.h"
+#include "parasite_bullet.h"
 #include <cmath>
 
 #ifndef M_PI
@@ -9,10 +10,12 @@ namespace {
 
 void spawn_lane_bullets(
     std::vector<Bullet>& bullets,
+    const Player& player,
     sf::Vector2f origin,
     const AttackProfile& profile,
     float shot_speed,
-    float range_sec)
+    float range_sec,
+    bool is_baby_tear)
 {
     for (int lane = 0; lane < profile.parallel_lanes; ++lane) {
         float offset = 0.f;
@@ -27,9 +30,10 @@ void spawn_lane_bullets(
         b.vx = 0.f;
         b.vy = -shot_speed;
         b.life = range_sec;
-        b.homing = profile.usesHoming();
+        b.homing = profile.usesHoming() && !is_baby_tear;
         b.homing_strength = profile.homing_strength;
         b.bullet_color = profile.bullet_color;
+        setup_player_bullet(b, player, is_baby_tear);
         bullets.push_back(b);
     }
 }
@@ -80,7 +84,8 @@ void BabySystem::tryFireBullets(
     const float range_sec = static_cast<float>(player.stats.range);
 
     for (const BabyCompanion& baby : player.babies) {
-        spawn_lane_bullets(bullets, baby.pos, profile, shot_speed, range_sec);
+        spawn_lane_bullets(
+            bullets, player, baby.pos, profile, shot_speed, range_sec, true);
     }
 }
 

@@ -1,6 +1,7 @@
 #include "brimstone_laser.h"
 #include "attack_profile.h"
 #include "passive_item.h"
+#include "split_laser.h"
 #include <cmath>
 
 #ifndef M_PI
@@ -140,6 +141,8 @@ void damage_enemies_in_beam_rect(
     float width,
     std::vector<Enemy>& enemies,
     int damage,
+    std::vector<SplitLaser>& pending_split_lasers,
+    bool has_parasite,
     const std::function<void(const Enemy&)>& on_kill)
 {
     const float half = width * 0.5f;
@@ -150,10 +153,12 @@ void damage_enemies_in_beam_rect(
             ++ei;
             continue;
         }
-        if (enemies[ei].y > top_y + 12.f) {
-            ++ei;
-            continue;
-        }
+
+        SplitLaserSystem::try_spawn_from_main_laser_hit(
+            pending_split_lasers,
+            enemies[ei],
+            static_cast<float>(damage),
+            has_parasite);
 
         enemies[ei].hp -= damage;
         if (enemies[ei].hp <= 0) {
@@ -171,6 +176,8 @@ void damage_enemies_along_path(
     std::vector<Enemy>& enemies,
     int damage,
     float half_width,
+    std::vector<SplitLaser>& pending_split_lasers,
+    bool has_parasite,
     const std::function<void(const Enemy&)>& on_kill)
 {
     if (path.size() < 2) return;
@@ -187,6 +194,12 @@ void damage_enemies_along_path(
             ++ei;
             continue;
         }
+
+        SplitLaserSystem::try_spawn_from_main_laser_hit(
+            pending_split_lasers,
+            enemies[ei],
+            static_cast<float>(damage),
+            has_parasite);
 
         enemies[ei].hp -= damage;
         if (enemies[ei].hp <= 0) {
@@ -323,6 +336,7 @@ void BrimstoneLaser::updateLaser(
     Player& player,
     std::vector<Enemy>& enemies,
     int damage,
+    std::vector<SplitLaser>& split_lasers,
     const std::function<void(const Enemy&)>& on_enemy_killed)
 {
     if (player.laser_duration_timer <= 0) {
@@ -344,10 +358,17 @@ void BrimstoneLaser::updateLaser(
     const AttackProfile profile = buildAttackProfile(player);
     const bool curved = profile.usesHoming();
     const float half_w = player.laser_half_width;
+    const bool has_parasite = player.stats.has_parasite;
+
+    std::vector<SplitLaser> pending_split_lasers;
+    pending_split_lasers.reserve(16);
 
     if (curved) {
         for (const auto& path : player.laser_paths) {
-            damage_enemies_along_path(path, enemies, damage, half_w, on_enemy_killed);
+            damage_enemies_along_path(
+                path, enemies, damage, half_w,
+                pending_split_lasers, has_parasite,
+                on_enemy_killed);
         }
     } else {
         for (const auto& path : player.laser_paths) {
@@ -358,8 +379,17 @@ void BrimstoneLaser::updateLaser(
                 half_w * 2.f,
                 enemies,
                 damage,
+                pending_split_lasers,
+                has_parasite,
                 on_enemy_killed);
         }
+    }
+
+    if (!pending_split_lasers.empty()) {
+        split_lasers.insert(
+            split_lasers.end(),
+            pending_split_lasers.begin(),
+            pending_split_lasers.end());
     }
 }
 

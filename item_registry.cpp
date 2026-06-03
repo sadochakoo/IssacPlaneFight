@@ -7,6 +7,7 @@ static const ItemDisplay DISPLAY_TABLE[] = {
     { L"魔术弯勺", L"子弹变紫并轻微追踪最近敌机", sf::Color(200, 100, 255) },
     { L"硫磺火",   L"蓄力发射贯穿屏幕的红色激光", sf::Color(220, 40, 40) },
     { L"20/20",    L"向上平行发射两发子弹",       sf::Color(180, 220, 255) },
+    { L"寄生虫",   L"命中后 V 字分裂，伤害逐代减半", sf::Color(180, 255, 120) },
 };
 
 static const int DISPLAY_COUNT = static_cast<int>(sizeof(DISPLAY_TABLE) / sizeof(DISPLAY_TABLE[0]));

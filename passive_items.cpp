@@ -49,12 +49,27 @@ public:
     }
 };
 
+// ---------- 寄生虫 (Parasite) ----------
+class ParasiteItem : public Item {
+public:
+    std::string getId() const override { return ItemIds::PARASITE; }
+
+    ItemDisplay getDisplay() const override {
+        return { L"寄生虫", L"命中后 V 字分裂，伤害逐代减半", sf::Color(180, 255, 120) };
+    }
+
+    void applyTo(Player& player) override {
+        player.stats.has_parasite = true;
+    }
+};
+
 // ---------- 工厂 ----------
 std::unique_ptr<Item> ItemFactory::create(int registry_index) {
     switch (registry_index) {
         case 0: return std::make_unique<SpoonBenderItem>();
         case 1: return std::make_unique<BrimstoneItem>();
         case 2: return std::make_unique<TwentyTwentyItem>();
+        case 3: return std::make_unique<ParasiteItem>();
         default: return nullptr;
     }
 }
@@ -63,5 +78,6 @@ std::unique_ptr<Item> ItemFactory::createById(const std::string& id) {
     if (id == ItemIds::SPOON_BENDER)  return std::make_unique<SpoonBenderItem>();
     if (id == ItemIds::BRIMSTONE)     return std::make_unique<BrimstoneItem>();
     if (id == ItemIds::TWENTY_TWENTY) return std::make_unique<TwentyTwentyItem>();
+    if (id == ItemIds::PARASITE)      return std::make_unique<ParasiteItem>();
     return nullptr;
 }

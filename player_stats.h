@@ -28,6 +28,7 @@ struct PlayerStats {
     int tracking_level  = 0;
     int baby_count      = 0;
     int extra_bullets   = 0;
+    bool has_parasite   = false;
 };
 
 // ==================== 敌人类型 ====================
@@ -47,9 +48,33 @@ struct Bullet {
     float x = 0.f, y = 0.f;
     float vx = 0.f, vy = 0.f;
     float life = 0.f;
-    bool  homing = false;           // 魔术弯勺：每帧向最近敌机偏转 vx
-    float homing_strength = 0.f;    // x 轴追踪强度
+    bool  homing = false;
+    float homing_strength = 0.f;
     sf::Color bullet_color = sf::Color(100, 200, 255);
+    bool  has_parasite = false;
+    bool  is_baby_tear = false;
+    int   generation = 0;
+    float damage = 0.f;
+    float radius = 8.f;
+    int   bounce_split_cooldown = 0;
+
+    Bullet() {
+        update_radius_from_generation();
+    }
+
+    void update_radius_from_generation() {
+        if (generation == 0) {
+            radius = 8.0f;
+        } else if (generation == 1) {
+            radius = 7.0f;
+        } else if (generation == 2) {
+            radius = 5.5f;
+        } else if (generation == 3) {
+            radius = 4.0f;
+        } else {
+            radius = 3.5f;
+        }
+    }
 };
 
 // ==================== 其它实体 ====================
@@ -69,6 +94,7 @@ struct Enemy {
     int   enemy_type = ENEMY_NORMAL;
     float shoot_timer = 0.f;
     float spiral_angle = 0.f;
+    int   parasite_split_cooldown = 0;
 };
 
 struct Particle {

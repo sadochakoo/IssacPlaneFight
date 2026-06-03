@@ -57,6 +57,8 @@
 #include "brimstone_laser.h"
 #include "baby_system.h"
 #include "item_test_loader.h"
+#include "parasite_bullet.h"
+#include "split_laser.h"
 
 // ==================== 游戏状态枚举 ====================
 /*
@@ -122,6 +124,10 @@ std::vector<HealthDrop> health_drops;
 
 // 粒子特效列表
 std::vector<Particle> particles;
+
+// 硫磺火 + 寄生虫：分裂短激光池
+std::vector<SplitLaser> split_lasers;
+int g_frame_count = 0;
 
 // 游戏分数
 int game_score = 0;
@@ -522,7 +528,9 @@ Player* reset_game(Player& player) {
     power_ups.clear();
     particles.clear();
     BrimstoneLaser::reset(player);
+    SplitLaserSystem::reset(split_lasers);
     BabySystem::reset(player);
+    g_frame_count = 0;
     health_drops.clear();
 
     // 重置全局变量
@@ -716,6 +724,12 @@ int main() {
                     } else if (event.key.code == sf::Keyboard::Num3 ||
                                event.key.code == sf::Keyboard::Numpad3) {
                         load_test_case(player, "test_03_army_of_babies");
+                    } else if (event.key.code == sf::Keyboard::Num4 ||
+                               event.key.code == sf::Keyboard::Numpad4) {
+                        load_test_case(player, "test_04_parasite");
+                    } else if (event.key.code == sf::Keyboard::Num5 ||
+                               event.key.code == sf::Keyboard::Numpad5) {
+                        load_test_case(player, "test_05_brimstone_parasite");
                     }
                 }
             }
@@ -733,6 +747,8 @@ int main() {
 
             // ==== 游戏进行状态 ====
             case GameState::PLAYING: {
+                ++g_frame_count;
+
                 // --- 玩家移动 ---
                 // WASD 或方向键控制移动
                 float move_x = 0.f, move_y = 0.f;
@@ -803,6 +819,10 @@ int main() {
 
                 // --- 更新敌人 ---
                 for (size_t i = 0; i < enemies.size(); ) {
+                    if (enemies[i].parasite_split_cooldown > 0) {
+                        --enemies[i].parasite_split_cooldown;
+                    }
+
                     // === 追踪型敌人：向玩家加速移动 ===
                     if (enemies[i].enemy_type == ENEMY_TRACKING ||
                         enemies[i].enemy_type == ENEMY_ELITE ||
@@ -853,31 +873,40 @@ int main() {
                     ++i;
                 }
 
-                // --- 子弹与敌人碰撞检测 ---
+                // --- 子弹与敌人碰撞检测（寄生虫分裂：先写入 pending，循环结束再合并）---
+                std::vector<Bullet> pending_bullets;
+                pending_bullets.reserve(128);
+
                 for (size_t bi = 0; bi < bullets.size(); ) {
                     bool bullet_hit = false;
                     for (size_t ei = 0; ei < enemies.size(); ++ei) {
+                        const float br = bullets[bi].radius;
                         if (check_collision(
-                                bullets[bi].x - 4.f, bullets[bi].y - 8.f,
-                                8.f, 16.f,
+                                bullets[bi].x - br, bullets[bi].y - br,
+                                br * 2.f, br * 2.f,
                                 enemies[ei].x - 15.f, enemies[ei].y - 15.f,
                                 30.f, 30.f)) {
-                            // 子弹命中敌人
-                            int dmg = player.get_damage();  // 从 stats 获取伤害
+                            float hit_damage = bullets[bi].damage;
+                            if (hit_damage <= 0.f) {
+                                hit_damage = static_cast<float>(player.get_damage());
+                            }
+                            const int dmg = std::max(
+                                1, static_cast<int>(std::ceil(hit_damage)));
                             enemies[ei].hp -= dmg;
 
                             if (enemies[ei].hp <= 0) {
-                                // 敌人死亡
                                 game_score += enemies[ei].score;
                                 spawn_particles(enemies[ei].x, enemies[ei].y,
                                                enemies[ei].color, 12);
-                                // 概率掉落道具（分数门槛）
                                 spawn_item_pickup(enemies[ei].x, enemies[ei].y);
-                                // 5% 概率掉落红心回血 (v3.3)
                                 if (random_float(0.f, 100.f) < 5.0f) {
                                     health_drops.push_back({enemies[ei].x, enemies[ei].y});
                                 }
                                 enemies.erase(enemies.begin() + ei);
+                            }
+
+                            if (can_parasite_split(bullets[bi])) {
+                                enqueue_parasite_hit_splits(bullets[bi], pending_bullets);
                             }
 
                             bullet_hit = true;
@@ -890,6 +919,12 @@ int main() {
                     } else {
                         ++bi;
                     }
+                }
+
+                if (!pending_bullets.empty()) {
+                    bullets.insert(bullets.end(),
+                                   pending_bullets.begin(),
+                                   pending_bullets.end());
                 }
 
                 // --- 更新道具拾取物 ---
@@ -971,7 +1006,12 @@ int main() {
                             health_drops.push_back({dead.x, dead.y});
                     };
                     BrimstoneLaser::updateLaser(
-                        player, enemies, player.get_damage(), on_laser_kill);
+                        player, enemies, player.get_damage(),
+                        split_lasers, on_laser_kill);
+
+                    SplitLaserSystem::update(
+                        split_lasers, enemies,
+                        player.stats.has_parasite, on_laser_kill);
                 }
 
 
@@ -1300,13 +1340,17 @@ int main() {
                     window.draw(shine);
                 }
 
-                // --- 绘制玩家子弹 ---
+                // --- 绘制玩家子弹（半径由 generation 分支决定）---
                 for (auto& b : bullets) {
-                    sf::RectangleShape rect(sf::Vector2f(6.f, 14.f));
-                    rect.setOrigin(3.f, 7.f);
-                    rect.setPosition(b.x, b.y);
-                    rect.setFillColor(b.bullet_color);
-                    window.draw(rect);
+                    sf::CircleShape circle(b.radius);
+                    circle.setOrigin(b.radius, b.radius);
+                    circle.setPosition(b.x, b.y);
+                    sf::Color c = b.bullet_color;
+                    if (b.has_parasite) {
+                        c = sf::Color(140, 255, 100, c.a);
+                    }
+                    circle.setFillColor(c);
+                    window.draw(circle);
                 }
 
                 // --- 绘制敌人子弹 ---
@@ -1409,6 +1453,7 @@ int main() {
 
                 BabySystem::render(window, player);
                 BrimstoneLaser::render(window, player);
+                SplitLaserSystem::render(window, split_lasers);
 
                 // --- 绘制粒子 ---
                 for (auto& p : particles) {
@@ -1513,6 +1558,8 @@ int main() {
                     held_str += L"20/20+" + std::to_wstring(player.stats.extra_bullets) + L" ";
                 if (player.stats.baby_count > 0)
                     held_str += L"宝宝" + std::to_wstring(player.stats.baby_count) + L" ";
+                if (player.stats.has_parasite)
+                    held_str += L"寄生虫 ";
                 const AttackProfile hud_profile = buildAttackProfile(player);
                 if (hud_profile.usesBrimstone()) {
                     held_str += L"[激光";

@@ -1,7 +1,9 @@
 #include "bullet_factory.h"
 #include "baby_system.h"
 #include "brimstone_laser.h"
+#include "parasite_bullet.h"
 #include <algorithm>
+#include <cmath>
 
 static int find_nearest_enemy_index(const std::vector<Enemy>& enemies, float bx, float by) {
     float min_dist = 1e9f;
@@ -20,10 +22,12 @@ static int find_nearest_enemy_index(const std::vector<Enemy>& enemies, float bx,
 
 static void spawn_lane_bullets(
     std::vector<Bullet>& bullets,
+    const Player& player,
     sf::Vector2f origin,
     const AttackProfile& profile,
     float shot_speed,
-    float range_sec)
+    float range_sec,
+    bool is_baby_tear)
 {
     for (int lane = 0; lane < profile.parallel_lanes; ++lane) {
         float offset = 0.f;
@@ -38,10 +42,50 @@ static void spawn_lane_bullets(
         b.vx = 0.f;
         b.vy = -shot_speed;
         b.life = range_sec;
-        b.homing = profile.usesHoming();
+        b.homing = profile.usesHoming() && !is_baby_tear;
         b.homing_strength = profile.homing_strength;
         b.bullet_color = profile.bullet_color;
+        setup_player_bullet(b, player, is_baby_tear);
         bullets.push_back(b);
+    }
+}
+
+static bool parasite_bullet_out_of_bounds(const Bullet& b) {
+    return b.life <= 0.f ||
+           b.x < -50.f || b.x > 850.f ||
+           b.y < -50.f || b.y > 950.f;
+}
+
+static void handle_parasite_wall_bounce(
+    Bullet& bullet,
+    std::vector<Bullet>& pending_bullets)
+{
+    const float margin = 10.f;
+    const float left = margin;
+    const float right = static_cast<float>(SCREEN_WIDTH) - margin;
+    const float top = margin;
+
+    bool bounced = false;
+
+    if (bullet.x < left) {
+        bullet.x = left;
+        bullet.vx = std::fabs(bullet.vx);
+        bounced = true;
+    } else if (bullet.x > right) {
+        bullet.x = right;
+        bullet.vx = -std::fabs(bullet.vx);
+        bounced = true;
+    }
+
+    if (bullet.y < top) {
+        bullet.y = top;
+        bullet.vy = std::fabs(bullet.vy);
+        bounced = true;
+    }
+
+    if (bounced && bullet.bounce_split_cooldown <= 0) {
+        enqueue_parasite_wall_splits(bullet, pending_bullets);
+        bullet.bounce_split_cooldown = 8;
     }
 }
 
@@ -55,7 +99,6 @@ void BulletFactory::tryFire(
     (void)fire_pressed;
     (void)dt;
 
-    // 主武器形态：硫磺火走 BrimstoneLaser，此处只处理普通弹幕
     if (profile.usesBrimstone()) {
         return;
     }
@@ -66,7 +109,8 @@ void BulletFactory::tryFire(
     const float shot_speed = static_cast<float>(player.stats.shot_speed);
     const float range_sec = static_cast<float>(player.stats.range);
 
-    spawn_lane_bullets(bullets, player.pos, profile, shot_speed, range_sec);
+    spawn_lane_bullets(
+        bullets, player, player.pos, profile, shot_speed, range_sec, false);
     BabySystem::tryFireBullets(player, profile, bullets);
 }
 
@@ -76,31 +120,54 @@ void BulletFactory::updateBullets(
     float player_shot_speed,
     float dt)
 {
+    std::vector<Bullet> pending_bullets;
+    pending_bullets.reserve(128);
+
     for (size_t i = 0; i < bullets.size(); ) {
-        if (bullets[i].homing && !enemies.empty()) {
-            const int target = find_nearest_enemy_index(enemies, bullets[i].x, bullets[i].y);
+        Bullet& b = bullets[i];
+
+        if (b.bounce_split_cooldown > 0) {
+            --b.bounce_split_cooldown;
+        }
+
+        if (b.homing && !b.is_baby_tear && !enemies.empty()) {
+            const int target = find_nearest_enemy_index(enemies, b.x, b.y);
             if (target >= 0 && target < static_cast<int>(enemies.size())) {
-                float dx = enemies[target].x - bullets[i].x;
-                float steer = bullets[i].homing_strength * dt;
-                if (dx > 5.f) bullets[i].vx += steer;
-                else if (dx < -5.f) bullets[i].vx -= steer;
+                float dx = enemies[target].x - b.x;
+                float steer = b.homing_strength * dt;
+                if (dx > 5.f) b.vx += steer;
+                else if (dx < -5.f) b.vx -= steer;
 
                 float max_vx = player_shot_speed * 0.85f;
-                if (bullets[i].vx > max_vx) bullets[i].vx = max_vx;
-                if (bullets[i].vx < -max_vx) bullets[i].vx = -max_vx;
+                if (b.vx > max_vx) b.vx = max_vx;
+                if (b.vx < -max_vx) b.vx = -max_vx;
             }
         }
 
-        bullets[i].x += bullets[i].vx * dt;
-        bullets[i].y += bullets[i].vy * dt;
-        bullets[i].life -= dt;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.life -= dt;
 
-        if (bullets[i].life <= 0.f ||
-            bullets[i].x < -50.f || bullets[i].x > 850.f ||
-            bullets[i].y < -50.f || bullets[i].y > 950.f) {
-            bullets.erase(bullets.begin() + i);
+        if (b.has_parasite) {
+            handle_parasite_wall_bounce(b, pending_bullets);
+            if (parasite_bullet_out_of_bounds(b)) {
+                bullets.erase(bullets.begin() + i);
+                continue;
+            }
         } else {
-            ++i;
+            if (parasite_bullet_out_of_bounds(b)) {
+                bullets.erase(bullets.begin() + i);
+                continue;
+            }
         }
+
+        ++i;
+    }
+
+    if (!pending_bullets.empty()) {
+        bullets.insert(
+            bullets.end(),
+            pending_bullets.begin(),
+            pending_bullets.end());
     }
 }
