@@ -126,6 +126,7 @@
     <ClCompile Include="parasite_bullet.cpp" />
     <ClCompile Include="split_laser.cpp" />
     <ClCompile Include="haemolacria.cpp" />
+    <ClCompile Include="ui_system.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -143,6 +144,7 @@
     <ClInclude Include="parasite_bullet.h" />
     <ClInclude Include="split_laser.h" />
     <ClInclude Include="haemolacria.h" />
+    <ClInclude Include="ui_system.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,0 +1,41 @@
+name: C++ CI (SFML Windows)
+
+# 触发条件：当有人向 develop 或 main 分支提交 PR 时触发
+on:
+  pull_request:
+    branches: [ "develop", "main" ]
+  # 允许在 GitHub 网页端手动点击运行（方便调试）
+  workflow_dispatch: 
+
+jobs:
+  build:
+    # 你的项目是基于 VS2022 的，所以我们使用最新的 Windows 环境
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code (拉取最新代码)
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild (配置编译环境)
+      uses: microsoft/setup-msbuild@v2
+      with:
+        vs-version: '[17.0, 18.0)' # 对应 Visual Studio 2022
+
+    - name: Download and Setup SFML (准备 SFML 依赖)
+      # 根据你的项目结构，将 SFML 下载并解压到项目根目录的上一级
+      run: |
+        cd ..
+        Write-Host "Downloading SFML 2.6.2 for VS2022 (x64)..."
+        Invoke-WebRequest -Uri "https://github.com/SFML/SFML/releases/download/2.6.2/SFML-2.6.2-windows-vc17-64-bit.zip" -OutFile "sfml.zip"
+        
+        Write-Host "Extracting SFML..."
+        Expand-Archive -Path "sfml.zip" -DestinationPath "."
+        
+        # 确保解压后的文件夹名为 SFML-2.6.2，以匹配你的 ../SFML-2.6.2/ 相对路径
+        Write-Host "SFML Setup Complete. Directory contents:"
+        ls
+
+    - name: Build Solution (执行编译)
+      # 切换回代码仓库目录，调用 MSBuild 编译解决方案
+      run: |
+        msbuild PlaneWar.sln /p:Configuration=Debug /p:Platform=x64

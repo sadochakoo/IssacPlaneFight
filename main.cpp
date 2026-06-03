@@ -60,6 +60,7 @@
 #include "parasite_bullet.h"
 #include "split_laser.h"
 #include "haemolacria.h"
+#include "ui_system.h"
 
 // ==================== 游戏状态枚举 ====================
 /*
@@ -175,29 +176,6 @@ bool  wave_pause = true;          // 首波前也有一段准备时间
 float wave_pause_timer = 2.0f;    // 首波前准备 2 秒
 float wave_spawn_timer = 0.f;
 int   prev_player_level = 1;
-
-// ==================== SFML 全局对象 ====================
-// 游戏字体（用于 UI 文字）
-sf::Font game_font;
-
-/*
- * load_font() - 加载中文字体
- *
- * 按优先级尝试加载系统字体
- * 返回值：true=加载成功，false=加载失败
- */
-bool load_font() {
-    // 优先级 1：微软雅黑（最美观）
-    if (game_font.loadFromFile("C:/Windows/Fonts/msyh.ttc")) return true;
-    if (game_font.loadFromFile("C:/Windows/Fonts/msyhbd.ttc")) return true;
-    // 优先级 2：黑体
-    if (game_font.loadFromFile("C:/Windows/Fonts/simhei.ttf")) return true;
-    // 优先级 3：宋体
-    if (game_font.loadFromFile("C:/Windows/Fonts/simsun.ttc")) return true;
-    // 优先级 4：Arial（英文）
-    if (game_font.loadFromFile("C:/Windows/Fonts/arial.ttf")) return true;
-    return false;
-}
 
 // ==================== 碰撞检测函数 ====================
 
@@ -556,26 +534,6 @@ Player* reset_game(Player& player) {
 // ==================== 绘制辅助函数 ====================
 
 /*
- * draw_player_hp_hearts() - 绘制玩家血量（红心）
- *
- * 在屏幕左上角绘制红心图标
- * 红色 = 有血，灰色 = 空血槽
- */
-void draw_player_hp_hearts(sf::RenderWindow& window, const Player& player, float x, float y) {
-    for (int i = 0; i < player.stats.max_hp; ++i) {
-        sf::CircleShape heart(8.f);
-        heart.setPosition(x + static_cast<float>(i) * 20.f, y);
-
-        if (i < static_cast<int>(player.stats.hp)) {
-            heart.setFillColor(sf::Color::Red);       // 有血 → 红色
-        } else {
-            heart.setFillColor(sf::Color(80, 20, 20)); // 空血 → 暗红
-        }
-        window.draw(heart);
-    }
-}
-
-/*
  * draw_player_shape() - 绘制玩家飞机（三角形）
  *
  * 以撒风格的玩家外观
@@ -678,8 +636,8 @@ int main() {
     );
     window.setFramerateLimit(60);  // 限制 60 FPS
 
-    // ===== 加载字体 =====
-    load_font();
+    UISystem ui_system;
+    ui_system.initialize();
 
     // ===== 创建游戏对象 =====
     Player player;                      // 玩家
@@ -1250,55 +1208,9 @@ int main() {
         window.clear(sf::Color(20, 10, 30));  // 深紫色背景
 
         switch (game_state) {
-            case GameState::MENU: {
-                // 菜单标题
-                sf::Text title(L"飞机大战 - 以撒版", game_font, 48);
-                title.setFillColor(sf::Color::White);
-                sf::FloatRect tb = title.getLocalBounds();
-                title.setOrigin(tb.width / 2.f, 0.f);
-                title.setPosition(400.f, 200.f);
-                window.draw(title);
-
-                // 副标题
-                sf::Text subtitle(L"模仿以撒的结合属性机制", game_font, 24);
-                subtitle.setFillColor(sf::Color(200, 200, 200));
-                sf::FloatRect sb = subtitle.getLocalBounds();
-                subtitle.setOrigin(sb.width / 2.f, 0.f);
-                subtitle.setPosition(400.f, 280.f);
-                window.draw(subtitle);
-
-                // 操作说明
-                sf::Text controls(L"WASD / 方向键 → 移动", game_font, 20);
-                controls.setFillColor(sf::Color(180, 180, 180));
-                sf::FloatRect cb = controls.getLocalBounds();
-                controls.setOrigin(cb.width / 2.f, 0.f);
-                controls.setPosition(400.f, 400.f);
-                window.draw(controls);
-
-                sf::Text controls2(L"空格 / J → 向上射击", game_font, 20);
-                controls2.setFillColor(sf::Color(180, 180, 180));
-                cb = controls2.getLocalBounds();
-                controls2.setOrigin(cb.width / 2.f, 0.f);
-                controls2.setPosition(400.f, 430.f);
-                window.draw(controls2);
-
-                sf::Text controls3(L"击杀敌人获得分数，分数达标后升级三选一", game_font, 18);
-                controls3.setFillColor(sf::Color(150, 150, 150));
-                cb = controls3.getLocalBounds();
-                controls3.setOrigin(cb.width / 2.f, 0.f);
-                controls3.setPosition(400.f, 480.f);
-                window.draw(controls3);
-
-                // 开始提示
-                sf::Text start(L"按 Enter 开始游戏", game_font, 28);
-                start.setFillColor(sf::Color(255, 255, 100));
-                sb = start.getLocalBounds();
-                start.setOrigin(sb.width / 2.f, 0.f);
-                start.setPosition(400.f, 580.f);
-                window.draw(start);
-
+            case GameState::MENU:
+                ui_system.draw_main_menu(window);
                 break;
-            }
 
             case GameState::PLAYING:
             case GameState::LEVEL_UP: {
@@ -1485,187 +1397,25 @@ int main() {
                     window.draw(circle);
                 }
 
-                // --- 波次公告 (v3.1) ---
-                if (game_state == GameState::PLAYING && wave_pause && wave_pause_timer > 0.f) {
-                    // 半透明黑色遮罩条
-                    sf::RectangleShape banner_bg(sf::Vector2f(500.f, 60.f));
-                    banner_bg.setOrigin(250.f, 30.f);
-                    banner_bg.setPosition(400.f, 450.f);
-                    banner_bg.setFillColor(sf::Color(0, 0, 0, 160));
-                    window.draw(banner_bg);
-
-                    // 公告文字
-                    std::wstring wave_msg;
-                    if (wave_pause_timer > 2.0f) {
-                        wave_msg = L"第 " + std::to_wstring(player_level)
-                                 + L" 层已清除！";
-                    } else {
-                        wave_msg = L"第 " + std::to_wstring(player_level)
-                                 + L" 层 - 一大波敌人来袭！";
-                    }
-
-                    sf::Text wave_text(wave_msg, game_font, 26);
-                    wave_text.setFillColor(sf::Color(255, 220, 100));
-                    sf::FloatRect wtb = wave_text.getLocalBounds();
-                    wave_text.setOrigin(wtb.width / 2.f, wtb.height / 2.f);
-                    wave_text.setPosition(400.f, 440.f);
-                    window.draw(wave_text);
-
-                    // 倒计时
-                    sf::Text count_text(L"下一波倒计时: "
-                        + std::to_wstring(static_cast<int>(wave_pause_timer + 0.99f))
-                        + L" 秒", game_font, 16);
-                    count_text.setFillColor(sf::Color(200, 200, 200));
-                    wtb = count_text.getLocalBounds();
-                    count_text.setOrigin(wtb.width / 2.f, 0.f);
-                    count_text.setPosition(400.f, 462.f);
-                    window.draw(count_text);
+                if (game_state == GameState::PLAYING
+                    || game_state == GameState::LEVEL_UP) {
+                    HudOverlay hud_overlay;
+                    hud_overlay.next_level_threshold = next_level_threshold;
+                    hud_overlay.score_at_level_start = score_at_level_start;
+                    hud_overlay.wave_pause = (game_state == GameState::PLAYING)
+                        && wave_pause;
+                    hud_overlay.wave_pause_timer = wave_pause_timer;
+                    ui_system.draw_hud(
+                        window, player, player_level, game_score, hud_overlay);
                 }
-
-                // --- 绘制 UI ---
-                // 血量（红心）
-                draw_player_hp_hearts(window, player, 12.f, 52.f);
-
-                // 分数
-                sf::Text score_text(L"分数: " + std::to_wstring(game_score), game_font, 18);
-                score_text.setFillColor(sf::Color::White);
-                score_text.setPosition(12.f, 12.f);
-                window.draw(score_text);
-
-                // 等级
-                sf::Text level_text(L"等级: " + std::to_wstring(player_level), game_font, 18);
-                level_text.setFillColor(sf::Color(255, 255, 100));
-                level_text.setPosition(12.f, 32.f);
-                window.draw(level_text);
-
-                // 升级进度（本等级内分数 / 本等级所需分数）
-                float level_needed = static_cast<float>(next_level_threshold - score_at_level_start);
-                float level_progress = static_cast<float>(game_score - score_at_level_start);
-                float progress = level_needed > 0.f ? level_progress / level_needed : 0.f;
-                if (progress > 1.f) progress = 1.f;
-                if (progress < 0.f) progress = 0.f;
-                sf::Text next_text(
-                    L"下一级: " + std::to_wstring(next_level_threshold), game_font, 14);
-                next_text.setFillColor(sf::Color(150, 150, 150));
-                next_text.setPosition(12.f, 75.f);
-                window.draw(next_text);
-
-                // 进度条
-                sf::RectangleShape prog_bar(sf::Vector2f(150.f, 6.f));
-                prog_bar.setPosition(12.f, 95.f);
-                prog_bar.setFillColor(sf::Color(40, 40, 40));
-                window.draw(prog_bar);
-                sf::RectangleShape prog_fill(sf::Vector2f(150.f * progress, 6.f));
-                prog_fill.setPosition(12.f, 95.f);
-                prog_fill.setFillColor(sf::Color(255, 200, 50));
-                window.draw(prog_fill);
-
-                // 道具计数
-                sf::Text items_text(
-                    L"道具: " + std::to_wstring(player.item_count), game_font, 14);
-                items_text.setFillColor(sf::Color(200, 200, 200));
-                items_text.setPosition(12.f, 108.f);
-                window.draw(items_text);
-
-                std::wstring held_str = L"层数: ";
-                if (player.stats.brimstone_level > 0)
-                    held_str += L"硫磺" + std::to_wstring(player.stats.brimstone_level) + L" ";
-                if (player.stats.tracking_level > 0)
-                    held_str += L"弯勺" + std::to_wstring(player.stats.tracking_level) + L" ";
-                if (player.stats.extra_bullets > 0)
-                    held_str += L"20/20+" + std::to_wstring(player.stats.extra_bullets) + L" ";
-                if (player.stats.baby_count > 0)
-                    held_str += L"宝宝" + std::to_wstring(player.stats.baby_count) + L" ";
-                if (player.stats.has_parasite)
-                    held_str += L"寄生虫 ";
-                if (player.stats.has_haemolacria)
-                    held_str += L"泪血症 ";
-                const AttackProfile hud_profile = buildAttackProfile(player);
-                if (hud_profile.usesBrimstone()) {
-                    held_str += L"[激光";
-                    if (hud_profile.brimstone_level >= 2) held_str += L"粗";
-                    if (hud_profile.usesHoming()) held_str += L"+追踪";
-                    if (hud_profile.parallel_lanes > 1) held_str += L"+多道";
-                    held_str += L"]";
-                } else if (hud_profile.usesHoming() || hud_profile.parallel_lanes > 1) {
-                    held_str += L"[";
-                    if (hud_profile.parallel_lanes > 1) held_str += L"多弹道";
-                    if (hud_profile.usesHoming()) held_str += L"+追踪";
-                    held_str += L"]";
-                }
-                sf::Text held_text(held_str, game_font, 14);
-                held_text.setFillColor(sf::Color(255, 220, 100));
-                held_text.setPosition(12.f, 870.f);
-                window.draw(held_text);
-
-                // 伤害显示
-                sf::Text dmg_text(
-                    L"伤害: " + std::to_wstring(player.stats.damage).substr(0, 4),
-                    game_font, 14);
-                dmg_text.setFillColor(sf::Color(255, 150, 100));
-                dmg_text.setPosition(12.f, 126.f);
-                window.draw(dmg_text);
-
-                // 升级进度条
-                sf::RectangleShape exp_bar_bg(sf::Vector2f(200.f, 10.f));
-                exp_bar_bg.setPosition(300.f, 10.f);
-                exp_bar_bg.setFillColor(sf::Color(40, 40, 40));
-                window.draw(exp_bar_bg);
-
-                float fill_ratio = level_progress / (level_needed > 0.f ? level_needed : 1.f);
-                if (fill_ratio > 1.f) fill_ratio = 1.f;
-                if (fill_ratio < 0.f) fill_ratio = 0.f;
-                sf::RectangleShape exp_bar_fill(sf::Vector2f(200.f * fill_ratio, 10.f));
-                exp_bar_fill.setPosition(300.f, 10.f);
-                exp_bar_fill.setFillColor(sf::Color(255, 200, 0));
-                window.draw(exp_bar_fill);
 
                 break;
             }
 
-            case GameState::GAME_OVER: {
-                // 游戏结束画面
-                sf::Text over_text(L"游戏结束", game_font, 48);
-                over_text.setFillColor(sf::Color(255, 80, 80));
-                sf::FloatRect ob = over_text.getLocalBounds();
-                over_text.setOrigin(ob.width / 2.f, 0.f);
-                over_text.setPosition(400.f, 250.f);
-                window.draw(over_text);
-
-                sf::Text final_score(
-                    L"最终分数: " + std::to_wstring(game_score), game_font, 28);
-                final_score.setFillColor(sf::Color::White);
-                sf::FloatRect fb = final_score.getLocalBounds();
-                final_score.setOrigin(fb.width / 2.f, 0.f);
-                final_score.setPosition(400.f, 330.f);
-                window.draw(final_score);
-
-                sf::Text final_level(
-                    L"最高等级: " + std::to_wstring(player_level), game_font, 24);
-                final_level.setFillColor(sf::Color(255, 255, 150));
-                fb = final_level.getLocalBounds();
-                final_level.setOrigin(fb.width / 2.f, 0.f);
-                final_level.setPosition(400.f, 370.f);
-                window.draw(final_level);
-
-                sf::Text final_items(
-                    L"收集道具: " + std::to_wstring(player.item_count) + L" 个",
-                    game_font, 24);
-                final_items.setFillColor(sf::Color(200, 200, 200));
-                fb = final_items.getLocalBounds();
-                final_items.setOrigin(fb.width / 2.f, 0.f);
-                final_items.setPosition(400.f, 410.f);
-                window.draw(final_items);
-
-                sf::Text restart(L"按 Enter 重新开始", game_font, 28);
-                restart.setFillColor(sf::Color(255, 255, 100));
-                fb = restart.getLocalBounds();
-                restart.setOrigin(fb.width / 2.f, 0.f);
-                restart.setPosition(400.f, 500.f);
-                window.draw(restart);
-
+            case GameState::GAME_OVER:
+                ui_system.draw_game_over(
+                    window, game_score, player_level, player.item_count);
                 break;
-            }
         }
 
         // 如果处于升级面板状态，将面板盖在最上面

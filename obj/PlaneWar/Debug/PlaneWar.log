@@ -1,17 +1,5 @@
 ﻿  main.cpp
-  level_up_panel.cpp
-  passive_items.cpp
-  item_registry.cpp
-  weapon_synergy_resolver.cpp
-  attack_resolver.cpp
-  baby_system.cpp
-  bullet_factory.cpp
-  brimstone_laser.cpp
-  player_item.cpp
-  item_test_loader.cpp
-  parasite_bullet.cpp
-  split_laser.cpp
-  haemolacria.cpp
+  ui_system.cpp
   正在生成代码...
 sfml-graphics-s-d.lib(Transformable.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Transformable.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(Color.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Color.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
@@ -22,8 +10,8 @@ sfml-graphics-s-d.lib(Font.obj) : warning LNK4099: 未找到 PDB“”(使用“
 sfml-graphics-s-d.lib(RectangleShape.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(RectangleShape.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(RenderTarget.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(RenderTarget.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(RenderWindow.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(RenderWindow.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
-sfml-graphics-s-d.lib(Text.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Text.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(RenderStates.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(RenderStates.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
+sfml-graphics-s-d.lib(Text.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Text.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(VertexArray.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(VertexArray.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(Transform.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Transform.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(Texture.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Texture.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
