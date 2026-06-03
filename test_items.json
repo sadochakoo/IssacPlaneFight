@@ -23,6 +23,19 @@
       }
     },
     {
+      "case_id": "test_06_haemolacria",
+      "name": "泪血症测试",
+      "description": "慢速血球落地爆裂",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "has_parasite": false,
+        "has_haemolacria": true
+      }
+    },
+    {
       "case_id": "test_05_brimstone_parasite",
       "name": "硫磺火+寄生虫融合",
       "description": "主激光命中后 Y 字分裂短激光",

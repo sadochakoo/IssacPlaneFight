@@ -59,6 +59,7 @@
 #include "item_test_loader.h"
 #include "parasite_bullet.h"
 #include "split_laser.h"
+#include "haemolacria.h"
 
 // ==================== 游戏状态枚举 ====================
 /*
@@ -730,6 +731,9 @@ int main() {
                     } else if (event.key.code == sf::Keyboard::Num5 ||
                                event.key.code == sf::Keyboard::Numpad5) {
                         load_test_case(player, "test_05_brimstone_parasite");
+                    } else if (event.key.code == sf::Keyboard::Num6 ||
+                               event.key.code == sf::Keyboard::Numpad6) {
+                        load_test_case(player, "test_06_haemolacria");
                     }
                 }
             }
@@ -792,14 +796,16 @@ int main() {
                     sf::Keyboard::isKeyPressed(sf::Keyboard::Space) ||
                     sf::Keyboard::isKeyPressed(sf::Keyboard::J);
 
-                BrimstoneLaser::updateChargeInput(player, fire_pressed);
+                if (!player.stats.has_haemolacria) {
+                    BrimstoneLaser::updateChargeInput(player, fire_pressed);
+                }
 
                 BulletFactory::tryFire(
                     player, attack_profile, bullets,
                     fire_pressed, dt);
 
                 BulletFactory::updateBullets(
-                    bullets, enemies,
+                    player, bullets, split_lasers, enemies,
                     static_cast<float>(player.stats.shot_speed), dt);
 
                 // --- 敌人子弹 ---
@@ -905,8 +911,11 @@ int main() {
                                 enemies.erase(enemies.begin() + ei);
                             }
 
+                            bullets[bi].is_dead = true;
+
                             if (can_parasite_split(bullets[bi])) {
-                                enqueue_parasite_hit_splits(bullets[bi], pending_bullets);
+                                enqueue_parasite_hit_splits(
+                                    bullets[bi], pending_bullets);
                             }
 
                             bullet_hit = true;
@@ -1005,15 +1014,17 @@ int main() {
                         if (random_float(0.f, 100.f) < 5.0f)
                             health_drops.push_back({dead.x, dead.y});
                     };
-                    BrimstoneLaser::updateLaser(
-                        player, enemies, player.get_damage(),
-                        split_lasers, on_laser_kill);
+
+                    if (!player.stats.has_haemolacria) {
+                        BrimstoneLaser::updateLaser(
+                            player, enemies, player.get_damage(),
+                            split_lasers, on_laser_kill);
+                    }
 
                     SplitLaserSystem::update(
                         split_lasers, enemies,
                         player.stats.has_parasite, on_laser_kill);
                 }
-
 
                 // --- 更新道具掉落冷却 ---
                 if (item_drop_timer > 0.f) item_drop_timer -= dt;
@@ -1340,13 +1351,20 @@ int main() {
                     window.draw(shine);
                 }
 
+                HaemolacriaSystem::render_orbs(window, bullets);
+
                 // --- 绘制玩家子弹（半径由 generation 分支决定）---
                 for (auto& b : bullets) {
+                    if (b.is_haemolacria_orb || b.is_dead) {
+                        continue;
+                    }
                     sf::CircleShape circle(b.radius);
                     circle.setOrigin(b.radius, b.radius);
                     circle.setPosition(b.x, b.y);
                     sf::Color c = b.bullet_color;
-                    if (b.has_parasite) {
+                    if (b.is_haemolacria_shard) {
+                        c = sf::Color(180, 20, 30, 255);
+                    } else if (b.has_parasite) {
                         c = sf::Color(140, 255, 100, c.a);
                     }
                     circle.setFillColor(c);
@@ -1560,6 +1578,8 @@ int main() {
                     held_str += L"宝宝" + std::to_wstring(player.stats.baby_count) + L" ";
                 if (player.stats.has_parasite)
                     held_str += L"寄生虫 ";
+                if (player.stats.has_haemolacria)
+                    held_str += L"泪血症 ";
                 const AttackProfile hud_profile = buildAttackProfile(player);
                 if (hud_profile.usesBrimstone()) {
                     held_str += L"[激光";

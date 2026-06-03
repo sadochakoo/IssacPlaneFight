@@ -54,6 +54,9 @@ bool load_test_case(Player& player, const std::string& target_case_id) {
         if (mods.contains("has_parasite")) {
             player.stats.has_parasite = mods["has_parasite"].get<bool>();
         }
+        if (mods.contains("has_haemolacria")) {
+            player.stats.has_haemolacria = mods["has_haemolacria"].get<bool>();
+        }
 
         BrimstoneLaser::reset(player);
         BabySystem::syncCount(player);

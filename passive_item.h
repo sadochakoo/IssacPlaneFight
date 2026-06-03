@@ -15,6 +15,7 @@ namespace ItemIds {
     inline const char* BRIMSTONE     = "brimstone";
     inline const char* TWENTY_TWENTY = "20/20";
     inline const char* PARASITE     = "parasite";
+    inline const char* HAEMOLACRIA  = "haemolacria";
 }
 
 // ==================== UI 展示元数据 ====================

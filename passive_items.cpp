@@ -3,6 +3,7 @@
  */
 
 #include "passive_item.h"
+#include "haemolacria.h"
 
 // ---------- 魔术弯勺 (Spoon Bender) ----------
 class SpoonBenderItem : public Item {
@@ -63,6 +64,26 @@ public:
     }
 };
 
+// ---------- 泪血症 (Haemolacria) ----------
+class HaemolacriaItem : public Item {
+public:
+    std::string getId() const override { return ItemIds::HAEMOLACRIA; }
+
+    ItemDisplay getDisplay() const override {
+        return { L"泪血症", L"慢速发射血球，落地 360° 爆裂", sf::Color(140, 0, 30) };
+    }
+
+    void applyTo(Player& player) override {
+        player.stats.has_haemolacria = true;
+        player.stats.damage *= HaemolacriaSystem::k_damage_multiplier;
+        player.stats.tear_rate *= 3;
+        if (player.stats.tear_rate < HaemolacriaSystem::k_tear_rate_after_pickup) {
+            player.stats.tear_rate = HaemolacriaSystem::k_tear_rate_after_pickup;
+        }
+        player.clampStats();
+    }
+};
+
 // ---------- 工厂 ----------
 std::unique_ptr<Item> ItemFactory::create(int registry_index) {
     switch (registry_index) {
@@ -70,6 +91,7 @@ std::unique_ptr<Item> ItemFactory::create(int registry_index) {
         case 1: return std::make_unique<BrimstoneItem>();
         case 2: return std::make_unique<TwentyTwentyItem>();
         case 3: return std::make_unique<ParasiteItem>();
+        case 4: return std::make_unique<HaemolacriaItem>();
         default: return nullptr;
     }
 }
@@ -79,5 +101,6 @@ std::unique_ptr<Item> ItemFactory::createById(const std::string& id) {
     if (id == ItemIds::BRIMSTONE)     return std::make_unique<BrimstoneItem>();
     if (id == ItemIds::TWENTY_TWENTY) return std::make_unique<TwentyTwentyItem>();
     if (id == ItemIds::PARASITE)      return std::make_unique<ParasiteItem>();
+    if (id == ItemIds::HAEMOLACRIA)   return std::make_unique<HaemolacriaItem>();
     return nullptr;
 }

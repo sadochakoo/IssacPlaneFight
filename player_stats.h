@@ -29,6 +29,7 @@ struct PlayerStats {
     int baby_count      = 0;
     int extra_bullets   = 0;
     bool has_parasite   = false;
+    bool has_haemolacria = false;
 };
 
 // ==================== 敌人类型 ====================
@@ -57,6 +58,13 @@ struct Bullet {
     float damage = 0.f;
     float radius = 8.f;
     int   bounce_split_cooldown = 0;
+    bool  is_haemolacria_shard = false;
+    bool  is_haemolacria_orb = false;
+    bool  is_dead = false;
+    float target_y = 0.f;
+    float start_y = 0.f;
+    float arc_progress = 0.f;
+    float visual_scale = 1.f;
 
     Bullet() {
         update_radius_from_generation();
@@ -161,7 +169,7 @@ public:
         if (stats.max_hp > 12) stats.max_hp = 12;
         if (stats.max_hp < 1) stats.max_hp = 1;
         if (stats.tear_rate < 2) stats.tear_rate = 2;
-        if (stats.tear_rate > 30) stats.tear_rate = 30;
+        if (stats.tear_rate > 90) stats.tear_rate = 90;
         if (stats.speed < 150.0) stats.speed = 150.0;
         if (stats.speed > 800.0) stats.speed = 800.0;
         if (stats.range < 0.3) stats.range = 0.3;

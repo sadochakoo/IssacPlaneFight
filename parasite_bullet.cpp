@@ -55,6 +55,12 @@ void setup_player_bullet(Bullet& bullet, const Player& player, bool is_baby_tear
 }
 
 bool can_parasite_split(const Bullet& bullet) {
+    if (bullet.is_haemolacria_shard || bullet.is_haemolacria_orb) {
+        return false;
+    }
+    if (bullet.generation > 0) {
+        return false;
+    }
     if (!bullet.has_parasite) {
         return false;
     }

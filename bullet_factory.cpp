@@ -2,6 +2,7 @@
 #include "baby_system.h"
 #include "brimstone_laser.h"
 #include "parasite_bullet.h"
+#include "haemolacria.h"
 #include <algorithm>
 #include <cmath>
 
@@ -99,6 +100,10 @@ void BulletFactory::tryFire(
     (void)fire_pressed;
     (void)dt;
 
+    if (HaemolacriaSystem::try_fire(player, bullets)) {
+        return;
+    }
+
     if (profile.usesBrimstone()) {
         return;
     }
@@ -115,16 +120,25 @@ void BulletFactory::tryFire(
 }
 
 void BulletFactory::updateBullets(
+    Player& player,
     std::vector<Bullet>& bullets,
+    std::vector<SplitLaser>& split_lasers,
     const std::vector<Enemy>& enemies,
     float player_shot_speed,
     float dt)
 {
+    HaemolacriaSystem::update_haemolacria_orbs(player, bullets, split_lasers, dt);
+
     std::vector<Bullet> pending_bullets;
     pending_bullets.reserve(128);
 
     for (size_t i = 0; i < bullets.size(); ) {
         Bullet& b = bullets[i];
+
+        if (b.is_haemolacria_orb || b.is_dead) {
+            ++i;
+            continue;
+        }
 
         if (b.bounce_split_cooldown > 0) {
             --b.bounce_split_cooldown;

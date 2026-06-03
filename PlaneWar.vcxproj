@@ -55,11 +55,11 @@
   <!-- 输出目录 -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\</IntDir>
   </PropertyGroup>
 
   <!-- Debug 编译选项 -->
@@ -125,6 +125,7 @@
     <ClCompile Include="item_test_loader.cpp" />
     <ClCompile Include="parasite_bullet.cpp" />
     <ClCompile Include="split_laser.cpp" />
+    <ClCompile Include="haemolacria.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -141,6 +142,7 @@
     <ClInclude Include="item_test_loader.h" />
     <ClInclude Include="parasite_bullet.h" />
     <ClInclude Include="split_laser.h" />
+    <ClInclude Include="haemolacria.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

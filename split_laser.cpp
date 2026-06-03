@@ -1,5 +1,6 @@
 #include "split_laser.h"
 #include <cmath>
+#include <cstdlib>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -13,7 +14,10 @@ int allocate_laser_id() {
     return g_next_laser_id++;
 }
 
-float beam_width_for_generation(int generation) {
+float beam_width_for_generation(int generation, bool is_haemolacria_reflect) {
+    if (is_haemolacria_reflect) {
+        return 34.f;
+    }
     if (generation <= 0) {
         return 28.f;
     }
@@ -70,7 +74,62 @@ void push_y_split_laser(std::vector<SplitLaser>& pending,
     laser.generation = generation;
     laser.life_timer = SplitLaserSystem::k_default_life_frames;
     laser.is_baby_tear = is_baby_tear;
+    laser.bounce_count = 0;
+    laser.vx = 0.f;
+    laser.vy = 0.f;
     pending.push_back(laser);
+}
+
+void update_reflect_laser_motion(SplitLaser& laser, float dt) {
+    if (!laser.is_haemolacria_reflect) {
+        if (laser.bounce_count <= 0 && std::fabs(laser.vx) < 1.f && std::fabs(laser.vy) < 1.f) {
+            return;
+        }
+    }
+
+    laser.x += laser.vx * dt;
+    laser.y += laser.vy * dt;
+    laser.angle = std::atan2(laser.vy, laser.vx);
+
+    const float margin = 12.f;
+    const float left = margin;
+    const float right = static_cast<float>(SCREEN_WIDTH) - margin;
+    const float top = margin;
+
+    const float tip_x = laser.x + std::cos(laser.angle) * laser.max_length;
+    const float tip_y = laser.y + std::sin(laser.angle) * laser.max_length;
+
+    auto try_bounce = [&](float& vel, bool hit) {
+        if (hit && laser.bounce_count > 0) {
+            vel = -vel;
+            --laser.bounce_count;
+        }
+    };
+
+    if (laser.x < left) {
+        laser.x = left;
+        try_bounce(laser.vx, laser.vx < 0.f);
+    } else if (laser.x > right) {
+        laser.x = right;
+        try_bounce(laser.vx, laser.vx > 0.f);
+    }
+
+    if (laser.y < top) {
+        laser.y = top;
+        try_bounce(laser.vy, laser.vy < 0.f);
+    }
+
+    if (tip_x < left) {
+        try_bounce(laser.vx, laser.vx < 0.f);
+    } else if (tip_x > right) {
+        try_bounce(laser.vx, laser.vx > 0.f);
+    }
+
+    if (tip_y < top) {
+        try_bounce(laser.vy, laser.vy < 0.f);
+    }
+
+    laser.angle = std::atan2(laser.vy, laser.vx);
 }
 
 void enqueue_generation_zero_splits(std::vector<SplitLaser>& pending,
@@ -130,7 +189,8 @@ void enqueue_child_splits(std::vector<SplitLaser>& pending,
 
 void draw_flat_split_beam(sf::RenderWindow& window, const SplitLaser& laser)
 {
-    const float width = beam_width_for_generation(laser.generation);
+    const float width = beam_width_for_generation(
+        laser.generation, laser.is_haemolacria_reflect);
     const float length = laser.max_length;
 
     sf::RectangleShape core(sf::Vector2f(width, length));
@@ -149,6 +209,42 @@ void draw_flat_split_beam(sf::RenderWindow& window, const SplitLaser& laser)
 }
 
 } // namespace
+
+void SplitLaserSystem::spawn_haemolacria_reflect_beams(
+    float origin_x,
+    float origin_y,
+    float base_damage,
+    std::vector<SplitLaser>& pending_lasers)
+{
+    const int beam_count = 5 + (std::rand() % 2);
+    const float move_speed = 280.f;
+    const int life_span = k_haemolacria_reflect_life_min
+        + (std::rand() % (k_haemolacria_reflect_life_max
+                          - k_haemolacria_reflect_life_min + 1));
+
+    for (int i = 0; i < beam_count; ++i) {
+        const float angle =
+            static_cast<float>(2.0 * M_PI) * static_cast<float>(i)
+            / static_cast<float>(beam_count);
+
+        SplitLaser laser;
+        laser.laser_id = allocate_laser_id();
+        laser.x = origin_x;
+        laser.y = origin_y;
+        laser.angle = angle;
+        laser.max_length = k_haemolacria_reflect_length;
+        laser.damage = base_damage * 0.45f;
+        laser.generation = 0;
+        laser.life_timer = life_span;
+        laser.is_baby_tear = false;
+        laser.is_haemolacria_reflect = true;
+        laser.pierces_enemies = true;
+        laser.bounce_count = 2;
+        laser.vx = std::cos(angle) * move_speed;
+        laser.vy = std::sin(angle) * move_speed;
+        pending_lasers.push_back(laser);
+    }
+}
 
 void SplitLaserSystem::reset(std::vector<SplitLaser>& split_lasers) {
     split_lasers.clear();
@@ -197,8 +293,14 @@ void SplitLaserSystem::update(
     pending_lasers.reserve(32);
 
     for (size_t i = 0; i < split_lasers.size(); ) {
-        split_lasers[i].life_timer--;
-        if (split_lasers[i].life_timer <= 0) {
+        SplitLaser& laser = split_lasers[i];
+
+        if (laser.is_haemolacria_reflect || laser.bounce_count > 0) {
+            update_reflect_laser_motion(laser, FRAME_TIME);
+        }
+
+        --laser.life_timer;
+        if (laser.life_timer <= 0) {
             split_lasers.erase(split_lasers.begin() + i);
         } else {
             ++i;
@@ -211,7 +313,33 @@ void SplitLaserSystem::update(
         const float ay = laser.y;
         const float bx = ax + std::cos(laser.angle) * laser.max_length;
         const float by = ay + std::sin(laser.angle) * laser.max_length;
-        const float half_w = beam_width_for_generation(laser.generation) * 0.5f;
+        const float half_w = beam_width_for_generation(
+            laser.generation, laser.is_haemolacria_reflect) * 0.5f;
+
+        if (laser.pierces_enemies) {
+            for (size_t ei = 0; ei < enemies.size(); ) {
+                if (!enemy_hits_laser_segment(enemies[ei], ax, ay, bx, by, half_w)) {
+                    ++ei;
+                    continue;
+                }
+
+                const int hit_dmg = std::max(
+                    1,
+                    static_cast<int>(std::ceil(laser.damage * 0.14f)));
+
+                enemies[ei].hp -= hit_dmg;
+                if (enemies[ei].hp <= 0) {
+                    Enemy dead = enemies[ei];
+                    enemies.erase(enemies.begin() + ei);
+                    if (on_enemy_killed) {
+                        on_enemy_killed(dead);
+                    }
+                } else {
+                    ++ei;
+                }
+            }
+            continue;
+        }
 
         for (size_t ei = 0; ei < enemies.size(); ) {
             if (!enemy_hits_laser_segment(enemies[ei], ax, ay, bx, by, half_w)) {

@@ -20,6 +20,11 @@ struct SplitLaser {
     int   generation = 0;
     int   life_timer = 0;
     bool  is_baby_tear = false;
+    int   bounce_count = 0;
+    float vx = 0.f;
+    float vy = 0.f;
+    bool  is_haemolacria_reflect = false;
+    bool  pierces_enemies = false;
 };
 
 class SplitLaserSystem {
@@ -32,6 +37,9 @@ public:
         static_cast<float>(SCREEN_WIDTH) / 3.f;
     static constexpr int   k_default_life_frames   = 14;
     static constexpr int   k_max_split_generation  = 3;
+    static constexpr float k_haemolacria_reflect_length = 1000.f;
+    static constexpr int   k_haemolacria_reflect_life_min = 45;
+    static constexpr int   k_haemolacria_reflect_life_max = 60;
 
     static void reset(std::vector<SplitLaser>& split_lasers);
 
@@ -57,6 +65,12 @@ public:
 
     static void render(sf::RenderWindow& window,
                        const std::vector<SplitLaser>& split_lasers);
+
+    static void spawn_haemolacria_reflect_beams(
+        float origin_x,
+        float origin_y,
+        float base_damage,
+        std::vector<SplitLaser>& pending_lasers);
 };
 
 #endif

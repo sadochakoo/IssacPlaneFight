@@ -7,6 +7,7 @@
 
 #include "attack_profile.h"
 #include "player_stats.h"
+#include "split_laser.h"
 #include <vector>
 
 class BulletFactory {
@@ -19,7 +20,9 @@ public:
         float dt);
 
     static void updateBullets(
+        Player& player,
         std::vector<Bullet>& bullets,
+        std::vector<SplitLaser>& split_lasers,
         const std::vector<Enemy>& enemies,
         float player_shot_speed,
         float dt);
