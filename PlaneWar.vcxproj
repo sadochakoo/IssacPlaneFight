@@ -127,6 +127,8 @@
     <ClCompile Include="split_laser.cpp" />
     <ClCompile Include="haemolacria.cpp" />
     <ClCompile Include="ui_system.cpp" />
+    <ClCompile Include="boss_system.cpp" />
+    <ClCompile Include="item_system.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -145,6 +147,9 @@
     <ClInclude Include="split_laser.h" />
     <ClInclude Include="haemolacria.h" />
     <ClInclude Include="ui_system.h" />
+    <ClInclude Include="damageable.h" />
+    <ClInclude Include="boss_system.h" />
+    <ClInclude Include="item_system.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

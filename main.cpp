@@ -61,6 +61,8 @@
 #include "split_laser.h"
 #include "haemolacria.h"
 #include "ui_system.h"
+#include "boss_system.h"
+#include "item_system.h"
 
 // ==================== 游戏状态枚举 ====================
 /*
@@ -130,6 +132,9 @@ std::vector<Particle> particles;
 // 硫磺火 + 寄生虫：分裂短激光池
 std::vector<SplitLaser> split_lasers;
 int g_frame_count = 0;
+
+BossSystem  g_boss_system;
+ItemManager g_item_manager;
 
 // 游戏分数
 int game_score = 0;
@@ -511,6 +516,8 @@ Player* reset_game(Player& player) {
     BabySystem::reset(player);
     g_frame_count = 0;
     health_drops.clear();
+    g_boss_system.clear();
+    g_item_manager.clear();
 
     // 重置全局变量
     game_score = 0;
@@ -837,61 +844,52 @@ int main() {
                     ++i;
                 }
 
-                // --- 子弹与敌人碰撞检测（寄生虫分裂：先写入 pending，循环结束再合并）---
+                g_boss_system.update(dt);
+                g_item_manager.update(dt);
+
+                // --- 投射物 vs 敌人/Boss（IDamageable 多态结算，仅 update 层）---
                 std::vector<Bullet> pending_bullets;
                 pending_bullets.reserve(128);
 
-                for (size_t bi = 0; bi < bullets.size(); ) {
-                    bool bullet_hit = false;
-                    for (size_t ei = 0; ei < enemies.size(); ++ei) {
-                        const float br = bullets[bi].radius;
-                        if (check_collision(
-                                bullets[bi].x - br, bullets[bi].y - br,
-                                br * 2.f, br * 2.f,
-                                enemies[ei].x - 15.f, enemies[ei].y - 15.f,
-                                30.f, 30.f)) {
-                            float hit_damage = bullets[bi].damage;
-                            if (hit_damage <= 0.f) {
-                                hit_damage = static_cast<float>(player.get_damage());
-                            }
-                            const int dmg = std::max(
-                                1, static_cast<int>(std::ceil(hit_damage)));
-                            enemies[ei].hp -= dmg;
-
-                            if (enemies[ei].hp <= 0) {
-                                game_score += enemies[ei].score;
-                                spawn_particles(enemies[ei].x, enemies[ei].y,
-                                               enemies[ei].color, 12);
-                                spawn_item_pickup(enemies[ei].x, enemies[ei].y);
-                                if (random_float(0.f, 100.f) < 5.0f) {
-                                    health_drops.push_back({enemies[ei].x, enemies[ei].y});
-                                }
-                                enemies.erase(enemies.begin() + ei);
-                            }
-
-                            bullets[bi].is_dead = true;
-
-                            if (can_parasite_split(bullets[bi])) {
-                                enqueue_parasite_hit_splits(
-                                    bullets[bi], pending_bullets);
-                            }
-
-                            bullet_hit = true;
-                            break;
+                ProjectileHitCallbacks combat_cb;
+                combat_cb.on_enemy_hit =
+                    [](Enemy& enemy, int /*dmg*/, bool killed) {
+                        if (!killed) {
+                            return;
                         }
-                    }
+                        game_score += enemy.score;
+                        spawn_particles(
+                            enemy.x, enemy.y, enemy.color, 12);
+                        spawn_item_pickup(enemy.x, enemy.y);
+                        if (random_float(0.f, 100.f) < 5.0f) {
+                            health_drops.push_back({enemy.x, enemy.y});
+                        }
+                    };
+                combat_cb.on_boss_hit =
+                    [](BaseBoss& boss, int /*dmg*/, bool killed) {
+                        if (!killed) {
+                            return;
+                        }
+                        game_score += boss.score_value();
+                        spawn_particles(
+                            boss.x(), boss.y(), sf::Color(200, 50, 200), 20);
+                    };
+                combat_cb.on_bullet_consumed =
+                    [](Bullet& /*bullet*/) {};
 
-                    if (bullet_hit) {
-                        bullets.erase(bullets.begin() + bi);
-                    } else {
-                        ++bi;
-                    }
-                }
+                g_item_manager.resolve_projectile_hits(
+                    bullets,
+                    enemies,
+                    g_boss_system,
+                    player,
+                    combat_cb,
+                    pending_bullets);
 
                 if (!pending_bullets.empty()) {
-                    bullets.insert(bullets.end(),
-                                   pending_bullets.begin(),
-                                   pending_bullets.end());
+                    bullets.insert(
+                        bullets.end(),
+                        pending_bullets.begin(),
+                        pending_bullets.end());
                 }
 
                 // --- 更新道具拾取物 ---

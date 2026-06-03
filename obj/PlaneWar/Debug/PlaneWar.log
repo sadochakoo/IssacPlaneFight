@@ -1,5 +1,6 @@
 ﻿  main.cpp
-  ui_system.cpp
+  boss_system.cpp
+  item_system.cpp
   正在生成代码...
 sfml-graphics-s-d.lib(Transformable.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Transformable.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
 sfml-graphics-s-d.lib(Color.obj) : warning LNK4099: 未找到 PDB“”(使用“sfml-graphics-s-d.lib(Color.obj)”或在“”中寻找)；正在链接对象，如同没有调试信息一样
