@@ -47,9 +47,9 @@
 #include <ctime>                   // time
 #include <string>
 #include <memory>
+#include <algorithm>
 
 #include "player_stats.h"
-#include "level_up_panel.h"
 #include "passive_item.h"
 #include "item_registry.h"
 #include "attack_profile.h"
@@ -69,18 +69,23 @@
  * GameState - 游戏状态机
  *
  * 状态转换：
- *   MENU → (按 Enter) → PLAYING
- *   PLAYING → (分数达标) → LEVEL_UP
+ *   MENU → (Enter) → CHARACTER_SELECT
+ *   CHARACTER_SELECT → (确认 Isaac) → PLAYING
+ *   PLAYING → (分数达标) → 生成宝箱下落
+ *   PLAYING → (碰到宝箱) → LEVEL_UP
  *   LEVEL_UP → (选择道具) → PLAYING
  *   PLAYING → (玩家死亡) → GAME_OVER
- *   GAME_OVER → (按 Enter) → 重置 → PLAYING
+ *   GAME_OVER → (Enter) → MENU
  */
 enum class GameState {
-    MENU,       // 主菜单
-    PLAYING,    // 游戏进行中
-    LEVEL_UP,   // 升级面板（游戏暂停）
-    GAME_OVER   // 游戏结束
+    MENU,              // 等待界面
+    CHARACTER_SELECT,  // 角色选择
+    PLAYING,           // 游戏进行中
+    LEVEL_UP,          // 选道具（暂停）
+    GAME_OVER          // 游戏结束
 };
+
+constexpr float k_screen_center_x = 400.f;
 
 // ==================== 全局随机数引擎 ====================
 /*
@@ -181,6 +186,27 @@ bool  wave_pause = true;          // 首波前也有一段准备时间
 float wave_pause_timer = 2.0f;    // 首波前准备 2 秒
 float wave_spawn_timer = 0.f;
 int   prev_player_level = 1;
+
+// 第二部分：升级宝箱 + 选道具
+std::vector<int> pending_level_up_options;
+bool             level_up_chest_armed = false;
+float            isaac_anim_time      = 0.f;
+CharacterId      selected_character   = CharacterId::Isaac;
+
+std::vector<int> roll_level_up_item_options() {
+    std::vector<int> pool;
+    const int count = ItemRegistry::itemCount();
+    pool.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        pool.push_back(i);
+    }
+    std::shuffle(pool.begin(), pool.end(), rng);
+    std::vector<int> options;
+    for (int i = 0; i < 3 && i < static_cast<int>(pool.size()); ++i) {
+        options.push_back(pool[static_cast<size_t>(i)]);
+    }
+    return options;
+}
 
 // ==================== 碰撞检测函数 ====================
 
@@ -535,39 +561,19 @@ Player* reset_game(Player& player) {
     init_layer_waves();
     prev_player_level = 1;
 
+    pending_level_up_options.clear();
+    level_up_chest_armed = false;
+    isaac_anim_time = 0.f;
+
     return &player;
 }
 
 // ==================== 绘制辅助函数 ====================
 
 /*
- * draw_player_shape() - 绘制玩家飞机（三角形）
- *
- * 以撒风格的玩家外观
+ * draw_player_status_fx() - Isaac 本体之上的护盾/隐形特效
  */
-void draw_player_shape(sf::RenderWindow& window, const Player& player) {
-    // 主体（圆角三角形）
-    sf::ConvexShape body;
-    body.setPointCount(3);
-    body.setPoint(0, sf::Vector2f(0.f, -20.f));    // 顶部
-    body.setPoint(1, sf::Vector2f(-16.f, 16.f));    // 左下
-    body.setPoint(2, sf::Vector2f(16.f, 16.f));     // 右下
-
-    // 根据状态设置颜色
-    sf::Color body_color;
-    if (player.invisible_timer > 0) {
-        body_color = sf::Color(100, 100, 255, 128);
-    } else if (player.shield_timer != 0) {
-        body_color = sf::Color(255, 255, 150);
-    } else {
-        body_color = sf::Color(255, 255, 255);
-    }
-    body.setFillColor(body_color);
-    body.setOutlineThickness(2.f);
-    body.setOutlineColor(sf::Color(100, 100, 100));
-    body.setPosition(player.pos);
-    window.draw(body);
-
+void draw_player_status_fx(sf::RenderWindow& window, const Player& player) {
     // 护盾光环（有护盾时外圈发光）
     if (player.shield_timer != 0) {
         sf::CircleShape shield_circle(22.f);
@@ -647,8 +653,7 @@ int main() {
     ui_system.initialize();
 
     // ===== 创建游戏对象 =====
-    Player player;                      // 玩家
-    LevelUpPanel level_up_panel;        // 升级面板
+    Player player;
 
     // ===== 游戏状态 =====
     GameState game_state = GameState::MENU;
@@ -670,12 +675,15 @@ int main() {
                     window.close();
                 }
 
-                // 菜单/结束画面按 Enter 开始新游戏
                 if (event.key.code == sf::Keyboard::Enter) {
-                    if (game_state == GameState::MENU ||
-                        game_state == GameState::GAME_OVER) {
+                    if (game_state == GameState::MENU) {
+                        game_state = GameState::CHARACTER_SELECT;
+                    } else if (game_state == GameState::CHARACTER_SELECT) {
+                        selected_character = CharacterId::Isaac;
                         reset_game(player);
                         game_state = GameState::PLAYING;
+                    } else if (game_state == GameState::GAME_OVER) {
+                        game_state = GameState::MENU;
                     }
                 }
 
@@ -709,14 +717,22 @@ int main() {
 
         // ========== 游戏逻辑 ==========
         switch (game_state) {
-            // ==== 菜单状态 ====
             case GameState::MENU:
-                // 菜单不更新游戏逻辑
                 break;
 
-            // ==== 游戏进行状态 ====
+            case GameState::CHARACTER_SELECT: {
+                const int picked = ui_system.update_character_select(window);
+                if (picked == static_cast<int>(CharacterId::Isaac)) {
+                    selected_character = CharacterId::Isaac;
+                    reset_game(player);
+                    game_state = GameState::PLAYING;
+                }
+                break;
+            }
+
             case GameState::PLAYING: {
                 ++g_frame_count;
+                isaac_anim_time += dt;
 
                 // --- 玩家移动 ---
                 // WASD 或方向键控制移动
@@ -1167,30 +1183,41 @@ int main() {
                     }
                 }
 
-                // --- 检测升级 ---
-                if (game_score >= next_level_threshold) {
-                    game_state = GameState::LEVEL_UP;
-                    level_up_panel.triggerLevelUp();
+                // --- 升级宝箱：下落与碰撞 ---
+                if (level_up_chest_armed) {
+                    if (!ui_system.has_active_chest()) {
+                        ui_system.spawn_item_chest(k_screen_center_x);
+                    }
+                    if (ui_system.update_item_chest(dt, player.pos, 18.f)) {
+                        ui_system.begin_item_pick(pending_level_up_options, player);
+                        game_state = GameState::LEVEL_UP;
+                    }
+                }
+
+                if (game_score >= next_level_threshold
+                    && !level_up_chest_armed
+                    && !ui_system.has_active_chest()
+                    && !ui_system.is_item_pick_active()) {
+                    pending_level_up_options = roll_level_up_item_options();
+                    ui_system.spawn_item_chest(k_screen_center_x);
+                    level_up_chest_armed = true;
                 }
 
                 break;
             }
 
-            // ==== 升级面板状态 ====
             case GameState::LEVEL_UP: {
-                // 检测玩家选择
-                int selected = level_up_panel.update(window);
+                const int selected = ui_system.update_item_pick(window);
                 if (selected >= 0 && selected < ItemRegistry::itemCount()) {
                     std::unique_ptr<Item> picked(ItemFactory::create(selected));
                     if (picked) {
                         player.applyItem(picked.release());
                     }
-                    // 记录本等级起始分（用于进度条清零）
                     score_at_level_start = game_score;
-                    // 提高下一级阈值（二次增长：前期间隔小、后期显著拉大）
                     next_level_threshold += 500 + player_level * player_level * 80;
                     player_level++;
-                    // 恢复游戏
+                    level_up_chest_armed = false;
+                    pending_level_up_options.clear();
                     game_state = GameState::PLAYING;
                 }
                 break;
@@ -1203,33 +1230,21 @@ int main() {
         }
 
         // ========== 渲染 ==========
-        window.clear(sf::Color(20, 10, 30));  // 深紫色背景
-
         switch (game_state) {
             case GameState::MENU:
-                ui_system.draw_main_menu(window);
+                window.clear(sf::Color::Black);
+                ui_system.draw_waiting_screen(window);
+                break;
+
+            case GameState::CHARACTER_SELECT:
+                window.clear(sf::Color::Black);
+                ui_system.draw_character_select(window);
                 break;
 
             case GameState::PLAYING:
             case GameState::LEVEL_UP: {
-                // --- 绘制背景星星 ---
-                static std::vector<sf::Vector2f> stars;
-                if (stars.empty()) {
-                    for (int i = 0; i < 80; ++i) {
-                        stars.push_back(sf::Vector2f(
-                            random_float(0.f, 800.f),
-                            random_float(0.f, 900.f)
-                        ));
-                    }
-                }
-                for (auto& star : stars) {
-                    sf::CircleShape s(1.5f);
-                    s.setPosition(star);
-                    s.setFillColor(sf::Color(180, 180, 200, 100));
-                    window.draw(s);
-                    star.y += 30.f * dt;
-                    if (star.y > 900.f) star.y = 0.f;
-                }
+                window.clear(sf::Color::Black);
+                ui_system.draw_room_background(window, player_level);
 
                 // --- 绘制道具拾取物 ---
                 for (auto& pu : power_ups) {
@@ -1376,8 +1391,11 @@ int main() {
                     }
                 }
 
-                // --- 绘制玩家 ---
-                draw_player_shape(window, player);
+                ui_system.draw_item_chest(window);
+
+                ui_system.draw_isaac_player(
+                    window, player.pos.x, player.pos.y, isaac_anim_time);
+                draw_player_status_fx(window, player);
 
                 BabySystem::render(window, player);
                 BrimstoneLaser::render(window, player);
@@ -1411,14 +1429,14 @@ int main() {
             }
 
             case GameState::GAME_OVER:
+                window.clear(sf::Color(20, 10, 30));
                 ui_system.draw_game_over(
                     window, game_score, player_level, player.item_count);
                 break;
         }
 
-        // 如果处于升级面板状态，将面板盖在最上面
         if (game_state == GameState::LEVEL_UP) {
-            level_up_panel.render(window);
+            ui_system.draw_item_pick(window);
         }
 
         // 交换缓冲区（显示画面）

@@ -1,0 +1,9 @@
+# 忽略 Visual Studio 缓存
+.vs/
+*.ipch
+*.suo
+*.db
+
+# 忽略编译输出
+bin/
+obj/
