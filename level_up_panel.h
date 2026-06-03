@@ -21,7 +21,7 @@
 #include <random>               // C++11 随机数库
 
 // ==================== 自定义头文件 ====================
-#include "player_stats.h"       // 玩家属性系统
+#include "item_registry.h"
 
 // ==================== LevelUpPanel 类定义 ====================
 /*
@@ -36,7 +36,7 @@
  *   if (panel.isActive()) {
  *       int selected = panel.update(window);
  *       if (selected != -1) {
- *           player.apply_item(ITEM_POOL[selected].effect);
+ *           player.applyItem(ItemFactory::create(selected).release());
  *       }
  *       panel.render(window);
  *   }

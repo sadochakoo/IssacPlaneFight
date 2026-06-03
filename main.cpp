@@ -1,10 +1,14 @@
 ﻿/*
  * main.cpp - 飞机大战：以撒的结合 风格重制
- * 版本：v3.1 (2026-06-02)
+ * 版本：v3.3 (2026-06-02)
  * 技术栈：C++17 / SFML 2.6.x
  * 平台：Windows x64 (Visual Studio 2022)
  *
  * 更新日志：
+ *   v3.3 - 血量掉落：击杀敌人5%概率掉红心(+1HP)
+ *          鼠标瞄准：子弹沿鼠标方向发射（手动控制方向）
+ *          淫魔叠加：分身数量可叠加（最多5个），围绕玩家分布
+ *   v3.2 - 血量平方递增：base_hp = 2 + layer^2
  *   v3.1 - 简化波次：每层1波，打完休息进下一层
  *          每层敌人数 = 8 + 层数×5（L1=13, L6=38）
  *          清除后休息 3.5 秒，未升级则刷新本层
@@ -41,10 +45,18 @@
 #include <random>                  // 随机数引擎
 #include <cstdlib>                 // rand/srand
 #include <ctime>                   // time
-#include <string>                  // 字符串
+#include <string>
+#include <memory>
 
-#include "player_stats.h"          // 玩家属性系统
-#include "level_up_panel.h"        // 三选一 UI 面板
+#include "player_stats.h"
+#include "level_up_panel.h"
+#include "passive_item.h"
+#include "item_registry.h"
+#include "attack_profile.h"
+#include "bullet_factory.h"
+#include "brimstone_laser.h"
+#include "baby_system.h"
+#include "item_test_loader.h"
 
 // ==================== 游戏状态枚举 ====================
 /*
@@ -86,6 +98,7 @@ float random_float(float min, float max) {
  * random_int() - 生成 [min, max] 范围的随机整数
  */
 int random_int(int min, int max) {
+    if (min > max) return min;
     std::uniform_int_distribution<int> dist(min, max);
     return dist(rng);
 }
@@ -102,6 +115,10 @@ std::vector<Enemy> enemies;
 
 // 道具拾取物列表
 std::vector<PowerUp> power_ups;
+
+// 血量拾取物列表 (v3.3)
+struct HealthDrop { float x, y; };
+std::vector<HealthDrop> health_drops;
 
 // 粒子特效列表
 std::vector<Particle> particles;
@@ -361,8 +378,9 @@ void spawn_enemy() {
     e.enemy_type = determine_enemy_type(layer);
 
     // === 属性计算 ===
-    // 基础 HP：随层数增加
-    int base_hp = 1 + layer;
+    // 基础 HP：平方递增，后期敌人明显更耐打
+    // L1=3, L2=6, L3=11, L4=18, L5=27, L6=38
+    int base_hp = 2 + layer * layer;
 
     // 类型倍率（精英和弹幕型更耐打）
     float type_hp_mult = 1.0f;
@@ -452,26 +470,10 @@ void spawn_item_pickup(float x, float y) {
     p.y = y;
     p.active = true;
 
-    // 随机道具（按稀有度加权）
-    int roll = random_int(0, 99);
-    if      (roll < 10) p.item_type = ITEM_MAGIC_MUSHROOM;     // 10%
-    else if (roll < 18) p.item_type = ITEM_LUNCH;              // 8%
-    else if (roll < 25) p.item_type = ITEM_BLOOD_BAG;          // 7%
-    else if (roll < 32) p.item_type = ITEM_SAD_ONION;          // 7%
-    else if (roll < 38) p.item_type = ITEM_CRICKETS_HEAD;      // 6%
-    else if (roll < 44) p.item_type = ITEM_SPEED_BALL;         // 6%
-    else if (roll < 50) p.item_type = ITEM_CAT_O_NINE_TAILS;   // 6%
-    else if (roll < 56) p.item_type = ITEM_MOMS_HEELS;         // 6%
-    else if (roll < 62) p.item_type = ITEM_BOOK_OF_BELIAL;     // 6%
-    else if (roll < 69) p.item_type = ITEM_SPOON_BENDER;       // 7%
-    else if (roll < 74) p.item_type = ITEM_HALO;               // 5%
-    else if (roll < 79) p.item_type = ITEM_WOODEN_SPOON;       // 5%
-    else if (roll < 84) p.item_type = ITEM_MAXS_HEAD;          // 5%
-    else if (roll < 89) p.item_type = ITEM_CUPIDS_ARROW;       // 5%
-    else if (roll < 93) p.item_type = ITEM_GAMEKID;            // 4%
-    else if (roll < 97) p.item_type = ITEM_HOLY_MANTLE;        // 4%
-    else if (roll < 99) p.item_type = ITEM_NECRONOMICON;       // 2%
-    else                p.item_type = ITEM_SUCCUBUS;            // 1%
+    // 随机道具（v3.4：8个被动融合道具，均等概率）
+    const int pool_size = ItemRegistry::itemCount();
+    if (pool_size <= 0) return;
+    p.item_index = random_int(0, pool_size - 1);
 
     power_ups.push_back(p);
 }
@@ -519,6 +521,9 @@ Player* reset_game(Player& player) {
     enemies.clear();
     power_ups.clear();
     particles.clear();
+    BrimstoneLaser::reset(player);
+    BabySystem::reset(player);
+    health_drops.clear();
 
     // 重置全局变量
     game_score = 0;
@@ -577,13 +582,11 @@ void draw_player_shape(sf::RenderWindow& window, const Player& player) {
     // 根据状态设置颜色
     sf::Color body_color;
     if (player.invisible_timer > 0) {
-        body_color = sf::Color(100, 100, 255, 128);  // 隐形 → 半透明蓝色
+        body_color = sf::Color(100, 100, 255, 128);
     } else if (player.shield_timer != 0) {
-        body_color = sf::Color(255, 255, 150);        // 护盾 → 黄色
-    } else if (player.damage_boost_timer > 0) {
-        body_color = sf::Color(255, 80, 80);          // 伤害增强 → 红色
+        body_color = sf::Color(255, 255, 150);
     } else {
-        body_color = sf::Color(255, 255, 255);        // 正常 → 白色
+        body_color = sf::Color(255, 255, 255);
     }
     body.setFillColor(body_color);
     body.setOutlineThickness(2.f);
@@ -701,6 +704,20 @@ int main() {
                         game_state = GameState::PLAYING;
                     }
                 }
+
+                // 调试：数字键 1/2/3 加载 test_items.json 用例（需 PLAYING）
+                if (game_state == GameState::PLAYING) {
+                    if (event.key.code == sf::Keyboard::Num1 ||
+                        event.key.code == sf::Keyboard::Numpad1) {
+                        load_test_case(player, "test_01_pure_brimstone");
+                    } else if (event.key.code == sf::Keyboard::Num2 ||
+                               event.key.code == sf::Keyboard::Numpad2) {
+                        load_test_case(player, "test_02_brimstone_spoon_2020");
+                    } else if (event.key.code == sf::Keyboard::Num3 ||
+                               event.key.code == sf::Keyboard::Numpad3) {
+                        load_test_case(player, "test_03_army_of_babies");
+                    }
+                }
             }
         }
 
@@ -747,90 +764,27 @@ int main() {
                 if (player.pos.y < 20.f)  player.pos.y = 20.f;
                 if (player.pos.y > 880.f) player.pos.y = 880.f;
 
-                // --- 玩家射击 ---
-                // 空格键或 J 键发射子弹
+                BabySystem::updateOrbit(player, dt);
+
+                const AttackProfile attack_profile = buildAttackProfile(player);
+
                 if (player.fire_cooldown > 0) {
-                    player.fire_cooldown--;  // 冷却减少
-                }
-                if ((sf::Keyboard::isKeyPressed(sf::Keyboard::Space) ||
-                     sf::Keyboard::isKeyPressed(sf::Keyboard::J)) &&
-                    player.fire_cooldown <= 0) {
-
-                    // 重置冷却（从 stats.tear_rate 读取射速）
-                    player.fire_cooldown = player.stats.tear_rate;
-
-                    // 主弹道 + 额外弹道
-                    int total_bullets = 1 + player.stats.extra_bullets;
-
-                    for (int b = 0; b < total_bullets; ++b) {
-                        Bullet bullet;
-                        bullet.x = player.pos.x + static_cast<float>(b - total_bullets / 2) * 8.f;
-                        bullet.y = player.pos.y - 20.f;
-                        bullet.vx = 0.f;
-                        // 弹速从 stats.shot_speed 读取
-                        bullet.vy = -static_cast<float>(player.stats.shot_speed);
-                        // 射程从 stats.range 读取
-                        bullet.life = static_cast<float>(player.stats.range);
-                        // 检测追踪状态
-                        bullet.tracking = (player.tracking_timer > 0);
-                        bullet.target_enemy = -1;
-                        bullet.bullet_color = (player.tracking_timer > 0)
-                            ? sf::Color(255, 100, 255)   // 追踪 → 粉色
-                            : sf::Color(100, 200, 255);  // 普通 → 淡蓝
-                        bullets.push_back(bullet);
-                    }
-
-                    // 分身射击（如果有分身）
-                    if (player.has_clone) {
-                        for (int b = 0; b < total_bullets; ++b) {
-                            Bullet bullet;
-                            bullet.x = player.pos.x + 50.f + static_cast<float>(b) * 8.f;
-                            bullet.y = player.pos.y - 15.f;
-                            bullet.vx = 0.f;
-                            bullet.vy = -static_cast<float>(player.stats.shot_speed);
-                            bullet.life = static_cast<float>(player.stats.range);
-                            bullet.tracking = false;
-                            bullet.target_enemy = -1;
-                            bullet.bullet_color = sf::Color(255, 200, 200, 200);
-                            bullets.push_back(bullet);
-
-                            bullet.x = player.pos.x - 50.f;
-                            bullets.push_back(bullet);
-                        }
-                    }
+                    player.fire_cooldown--;
                 }
 
-                // --- 更新子弹 ---
-                for (size_t i = 0; i < bullets.size(); ) {
-                    // 追踪子弹：自动锁定最近敌人
-                    if (bullets[i].tracking) {
-                        int target = find_nearest_enemy(bullets[i].x, bullets[i].y);
-                        if (target >= 0) {
-                            float dx = enemies[target].x - bullets[i].x;
-                            float dy = enemies[target].y - bullets[i].y;
-                            float dist = std::sqrt(dx * dx + dy * dy);
-                            if (dist > 1.f) {
-                                float speed = static_cast<float>(player.stats.shot_speed);
-                                bullets[i].vx = dx / dist * speed;
-                                bullets[i].vy = dy / dist * speed;
-                            }
-                        }
-                    }
+                const bool fire_pressed =
+                    sf::Keyboard::isKeyPressed(sf::Keyboard::Space) ||
+                    sf::Keyboard::isKeyPressed(sf::Keyboard::J);
 
-                    // 移动子弹
-                    bullets[i].x += bullets[i].vx * dt;
-                    bullets[i].y += bullets[i].vy * dt;
-                    bullets[i].life -= dt;
+                BrimstoneLaser::updateChargeInput(player, fire_pressed);
 
-                    // 到达射程或飞出屏幕 → 删除
-                    if (bullets[i].life <= 0.f ||
-                        bullets[i].x < -50.f || bullets[i].x > 850.f ||
-                        bullets[i].y < -50.f || bullets[i].y > 950.f) {
-                        bullets.erase(bullets.begin() + i);
-                    } else {
-                        ++i;
-                    }
-                }
+                BulletFactory::tryFire(
+                    player, attack_profile, bullets,
+                    fire_pressed, dt);
+
+                BulletFactory::updateBullets(
+                    bullets, enemies,
+                    static_cast<float>(player.stats.shot_speed), dt);
 
                 // --- 敌人子弹 ---
                 for (size_t i = 0; i < enemy_bullets.size(); ) {
@@ -917,8 +871,12 @@ int main() {
                                 game_score += enemies[ei].score;
                                 spawn_particles(enemies[ei].x, enemies[ei].y,
                                                enemies[ei].color, 12);
-                                // 概率掉落道具
+                                // 概率掉落道具（分数门槛）
                                 spawn_item_pickup(enemies[ei].x, enemies[ei].y);
+                                // 5% 概率掉落红心回血 (v3.3)
+                                if (random_float(0.f, 100.f) < 5.0f) {
+                                    health_drops.push_back({enemies[ei].x, enemies[ei].y});
+                                }
                                 enemies.erase(enemies.begin() + ei);
                             }
 
@@ -950,11 +908,40 @@ int main() {
                             power_ups[i].x - 12.f, power_ups[i].y - 12.f,
                             24.f, 24.f)) {
                         // 应用道具效果
-                        player.apply_item(ITEM_POOL[power_ups[i].item_type].effect);
+                        const int itype = power_ups[i].item_index;
+                        if (itype >= 0 && itype < ItemRegistry::itemCount()) {
+                            std::unique_ptr<Item> dropped(ItemFactory::create(itype));
+                            if (dropped) {
+                                player.applyItem(dropped.release());
+                            }
+                        }
                         // 特效粒子
                         spawn_particles(power_ups[i].x, power_ups[i].y,
                                        sf::Color(255, 255, 100), 10);
                         power_ups.erase(power_ups.begin() + i);
+                    } else {
+                        ++i;
+                    }
+                }
+
+                // --- 血量拾取物更新与拾取 (v3.3) ---
+                for (size_t i = 0; i < health_drops.size(); ) {
+                    health_drops[i].y += 30.f * dt;  // 缓慢下落
+                    bool picked = check_collision(
+                        player.pos.x - 16.f, player.pos.y - 20.f,
+                        32.f, 40.f,
+                        health_drops[i].x - 10.f, health_drops[i].y - 10.f,
+                        20.f, 20.f);
+                    if (picked) {
+                        player.stats.hp += 1;
+                        if (player.stats.hp > player.base_stats.hp + 6)
+                            player.stats.hp = player.base_stats.hp + 6;
+                        spawn_particles(health_drops[i].x, health_drops[i].y,
+                                       sf::Color(255, 80, 80), 6);
+                        health_drops.erase(health_drops.begin() + i);
+                    } else if (health_drops[i].y > 900.f) {
+                        // 掉出屏幕消失
+                        health_drops.erase(health_drops.begin() + i);
                     } else {
                         ++i;
                     }
@@ -974,6 +961,19 @@ int main() {
 
                 // --- 更新玩家计时器 ---
                 player.update_timers();
+
+                {
+                    auto on_laser_kill = [&](const Enemy& dead) {
+                        game_score += dead.score;
+                        spawn_particles(dead.x, dead.y, dead.color, 12);
+                        spawn_item_pickup(dead.x, dead.y);
+                        if (random_float(0.f, 100.f) < 5.0f)
+                            health_drops.push_back({dead.x, dead.y});
+                    };
+                    BrimstoneLaser::updateLaser(
+                        player, enemies, player.get_damage(), on_laser_kill);
+                }
+
 
                 // --- 更新道具掉落冷却 ---
                 if (item_drop_timer > 0.f) item_drop_timer -= dt;
@@ -1057,7 +1057,7 @@ int main() {
                             // 普通：单发瞄准子弹
                             Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
                             eb.vx = dx / dist * spd; eb.vy = dy / dist * spd;
-                            eb.life = 3.f; eb.tracking = false;
+                            eb.life = 3.f; eb.homing = false;
                             eb.bullet_color = sf::Color(255, 150, 50);
                             enemy_bullets.push_back(eb);
                             break;
@@ -1069,7 +1069,7 @@ int main() {
                                 float a = ba + float(j) * 0.175f;
                                 Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
                                 eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
-                                eb.life = 3.f; eb.tracking = false;
+                                eb.life = 3.f; eb.homing = false;
                                 eb.bullet_color = sf::Color(255, 180, 80);
                                 enemy_bullets.push_back(eb);
                             }
@@ -1079,7 +1079,7 @@ int main() {
                             // 追踪敌人：单发瞄准
                             Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
                             eb.vx = dx / dist * spd; eb.vy = dy / dist * spd;
-                            eb.life = 3.f; eb.tracking = false;
+                            eb.life = 3.f; eb.homing = false;
                             eb.bullet_color = sf::Color(200, 100, 240);
                             enemy_bullets.push_back(eb);
                             break;
@@ -1091,7 +1091,7 @@ int main() {
                                 float a = ba + float(j) * 0.262f;
                                 Bullet eb; eb.x = enemy.x; eb.y = enemy.y + 15.f;
                                 eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
-                                eb.life = 3.f; eb.tracking = false;
+                                eb.life = 3.f; eb.homing = false;
                                 eb.bullet_color = sf::Color(220, 60, 40);
                                 enemy_bullets.push_back(eb);
                             }
@@ -1105,7 +1105,7 @@ int main() {
                                 float a = off + float(j) * pad / float(cnt);
                                 Bullet eb; eb.x = enemy.x; eb.y = enemy.y;
                                 eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
-                                eb.life = 2.5f; eb.tracking = false;
+                                eb.life = 2.5f; eb.homing = false;
                                 eb.bullet_color = sf::Color(60, 180, 255, 220);
                                 enemy_bullets.push_back(eb);
                             }
@@ -1119,7 +1119,7 @@ int main() {
                                 Bullet eb; eb.x = enemy.x; eb.y = enemy.y;
                                 eb.vx = std::cos(a) * spd * 0.8f;
                                 eb.vy = std::sin(a) * spd * 0.8f;
-                                eb.life = 2.0f; eb.tracking = false;
+                                eb.life = 2.0f; eb.homing = false;
                                 eb.bullet_color = sf::Color(60, 220, 120, 200);
                                 enemy_bullets.push_back(eb);
                             }
@@ -1133,7 +1133,7 @@ int main() {
                                 Bullet eb; eb.x = enemy.x; eb.y = enemy.y;
                                 eb.vx = std::cos(a) * spd * 0.9f;
                                 eb.vy = std::sin(a) * spd * 0.9f;
-                                eb.life = 2.2f; eb.tracking = false;
+                                eb.life = 2.2f; eb.homing = false;
                                 eb.bullet_color = sf::Color(30, 200, 80, 220);
                                 enemy_bullets.push_back(eb);
                             }
@@ -1173,9 +1173,11 @@ int main() {
             case GameState::LEVEL_UP: {
                 // 检测玩家选择
                 int selected = level_up_panel.update(window);
-                if (selected >= 0) {
-                    // 玩家选择了道具，应用效果
-                    player.apply_item(ITEM_POOL[selected].effect);
+                if (selected >= 0 && selected < ItemRegistry::itemCount()) {
+                    std::unique_ptr<Item> picked(ItemFactory::create(selected));
+                    if (picked) {
+                        player.applyItem(picked.release());
+                    }
                     // 记录本等级起始分（用于进度条清零）
                     score_at_level_start = game_score;
                     // 提高下一级阈值（二次增长：前期间隔小、后期显著拉大）
@@ -1222,7 +1224,7 @@ int main() {
                 controls.setPosition(400.f, 400.f);
                 window.draw(controls);
 
-                sf::Text controls2(L"空格 / J → 射击", game_font, 20);
+                sf::Text controls2(L"空格 / J → 向上射击", game_font, 20);
                 controls2.setFillColor(sf::Color(180, 180, 180));
                 cb = controls2.getLocalBounds();
                 controls2.setOrigin(cb.width / 2.f, 0.f);
@@ -1278,6 +1280,24 @@ int main() {
                     rect.setOutlineThickness(1.f);
                     rect.setOutlineColor(sf::Color::White);
                     window.draw(rect);
+                }
+
+                // --- 绘制血量拾取物 (v3.3) ---
+                for (auto& hd : health_drops) {
+                    // 画一个红色红心
+                    sf::CircleShape heart(10.f);
+                    heart.setOrigin(10.f, 10.f);
+                    heart.setPosition(hd.x, hd.y);
+                    heart.setFillColor(sf::Color(255, 40, 40));
+                    heart.setOutlineThickness(1.f);
+                    heart.setOutlineColor(sf::Color(255, 150, 150));
+                    window.draw(heart);
+                    // 红心内部白色高光
+                    sf::CircleShape shine(3.f);
+                    shine.setOrigin(3.f, 3.f);
+                    shine.setPosition(hd.x - 2.f, hd.y - 3.f);
+                    shine.setFillColor(sf::Color(255, 180, 180, 180));
+                    window.draw(shine);
                 }
 
                 // --- 绘制玩家子弹 ---
@@ -1384,13 +1404,11 @@ int main() {
                     }
                 }
 
-                // --- 绘制分身 ---
-                if (player.has_clone) {
-                    draw_clone_shape(window, player);
-                }
-
                 // --- 绘制玩家 ---
                 draw_player_shape(window, player);
+
+                BabySystem::render(window, player);
+                BrimstoneLaser::render(window, player);
 
                 // --- 绘制粒子 ---
                 for (auto& p : particles) {
@@ -1485,6 +1503,33 @@ int main() {
                 items_text.setFillColor(sf::Color(200, 200, 200));
                 items_text.setPosition(12.f, 108.f);
                 window.draw(items_text);
+
+                std::wstring held_str = L"层数: ";
+                if (player.stats.brimstone_level > 0)
+                    held_str += L"硫磺" + std::to_wstring(player.stats.brimstone_level) + L" ";
+                if (player.stats.tracking_level > 0)
+                    held_str += L"弯勺" + std::to_wstring(player.stats.tracking_level) + L" ";
+                if (player.stats.extra_bullets > 0)
+                    held_str += L"20/20+" + std::to_wstring(player.stats.extra_bullets) + L" ";
+                if (player.stats.baby_count > 0)
+                    held_str += L"宝宝" + std::to_wstring(player.stats.baby_count) + L" ";
+                const AttackProfile hud_profile = buildAttackProfile(player);
+                if (hud_profile.usesBrimstone()) {
+                    held_str += L"[激光";
+                    if (hud_profile.brimstone_level >= 2) held_str += L"粗";
+                    if (hud_profile.usesHoming()) held_str += L"+追踪";
+                    if (hud_profile.parallel_lanes > 1) held_str += L"+多道";
+                    held_str += L"]";
+                } else if (hud_profile.usesHoming() || hud_profile.parallel_lanes > 1) {
+                    held_str += L"[";
+                    if (hud_profile.parallel_lanes > 1) held_str += L"多弹道";
+                    if (hud_profile.usesHoming()) held_str += L"+追踪";
+                    held_str += L"]";
+                }
+                sf::Text held_text(held_str, game_font, 14);
+                held_text.setFillColor(sf::Color(255, 220, 100));
+                held_text.setPosition(12.f, 870.f);
+                window.draw(held_text);
 
                 // 伤害显示
                 sf::Text dmg_text(

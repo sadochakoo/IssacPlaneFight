@@ -1,2 +1,11 @@
-D:\我的软件\飞机大战_cpp\PlaneWar\main.cpp;D:\我的软件\飞机大战_cpp\PlaneWar\obj\Debug\main.obj
-D:\我的软件\飞机大战_cpp\PlaneWar\level_up_panel.cpp;D:\我的软件\飞机大战_cpp\PlaneWar\obj\Debug\level_up_panel.obj
+E:\cs\code\26c++\IssacPlaneFight\main.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\main.obj
+E:\cs\code\26c++\IssacPlaneFight\level_up_panel.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\level_up_panel.obj
+E:\cs\code\26c++\IssacPlaneFight\passive_items.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\passive_items.obj
+E:\cs\code\26c++\IssacPlaneFight\item_registry.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\item_registry.obj
+E:\cs\code\26c++\IssacPlaneFight\weapon_synergy_resolver.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\weapon_synergy_resolver.obj
+E:\cs\code\26c++\IssacPlaneFight\attack_resolver.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\attack_resolver.obj
+E:\cs\code\26c++\IssacPlaneFight\baby_system.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\baby_system.obj
+E:\cs\code\26c++\IssacPlaneFight\bullet_factory.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\bullet_factory.obj
+E:\cs\code\26c++\IssacPlaneFight\brimstone_laser.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\brimstone_laser.obj
+E:\cs\code\26c++\IssacPlaneFight\player_item.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\player_item.obj
+E:\cs\code\26c++\IssacPlaneFight\item_test_loader.cpp;E:\cs\code\26c++\IssacPlaneFight\obj\Debug\item_test_loader.obj

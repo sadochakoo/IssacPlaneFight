@@ -1,7 +1,30 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.43.34808\\include\\vector||{3B902123-F8A7-4915-9F01-361F908088D0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\crt\\src\\vcruntime\\exe_common.inl||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\main.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|solutionrelative:main.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\level_up_panel.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|solutionrelative:level_up_panel.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\player_stats.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|solutionrelative:player_stats.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\level_up_panel.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{B2C3D4E5-F6A7-8901-BCDE-F23456789012}|PlaneWar.vcxproj|solutionrelative:level_up_panel.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
@@ -9,11 +32,79 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": -1,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Bookmark",
               "Name": "ST:0:0:{56df62a4-05a3-4e5b-aa1a-99371ccfb997}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "vector",
+              "DocumentMoniker": "D:\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.43.34808\\include\\vector",
+              "ToolTip": "D:\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.43.34808\\include\\vector",
+              "ViewState": "AgIAAHIHAAAAAAAAAAAawHoHAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-06-03T01:01:29.022Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "exe_common.inl",
+              "DocumentMoniker": "D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\crt\\src\\vcruntime\\exe_common.inl",
+              "ToolTip": "D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\crt\\src\\vcruntime\\exe_common.inl",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
+              "WhenOpened": "2026-06-03T00:06:56.815Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "main.cpp",
+              "DocumentMoniker": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\main.cpp",
+              "RelativeDocumentMoniker": "main.cpp",
+              "ToolTip": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\main.cpp",
+              "RelativeToolTip": "main.cpp",
+              "ViewState": "AgIAAAAAAAAAAAAAAADwvwAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-06-03T00:06:44.074Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "level_up_panel.cpp",
+              "DocumentMoniker": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\level_up_panel.cpp",
+              "RelativeDocumentMoniker": "level_up_panel.cpp",
+              "ToolTip": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\level_up_panel.cpp",
+              "RelativeToolTip": "level_up_panel.cpp",
+              "ViewState": "AgIAAAAAAAAAAAAAAADwvwAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-06-03T00:06:43.14Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "player_stats.h",
+              "DocumentMoniker": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\player_stats.h",
+              "RelativeDocumentMoniker": "player_stats.h",
+              "ToolTip": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\player_stats.h",
+              "RelativeToolTip": "player_stats.h",
+              "ViewState": "AgIAAAAAAAAAAAAAAADwvwAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-06-03T00:06:41.236Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "level_up_panel.h",
+              "DocumentMoniker": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\level_up_panel.h",
+              "RelativeDocumentMoniker": "level_up_panel.h",
+              "ToolTip": "E:\\cs\\code\\26c\u002B\u002B\\IssacPlaneFight\\level_up_panel.h",
+              "RelativeToolTip": "level_up_panel.h",
+              "ViewState": "AgIAAAAAAAAAAAAAAADwvwAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-06-03T00:06:40.07Z"
             }
           ]
         }

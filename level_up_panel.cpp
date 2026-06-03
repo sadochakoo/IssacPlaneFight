@@ -49,7 +49,8 @@ void LevelUpPanel::triggerLevelUp() {
 
     // 创建道具池：0, 1, 2, ..., ITEM_COUNT-1
     std::vector<int> pool;
-    for (int i = 0; i < ITEM_COUNT; ++i) {
+    const int count = ItemRegistry::itemCount();
+    for (int i = 0; i < count; ++i) {
         pool.push_back(i);
     }
 
@@ -105,9 +106,13 @@ int LevelUpPanel::update(sf::RenderWindow& window) {
 
         // 检测鼠标是否在卡牌内
         if (card_rect.contains(static_cast<float>(mouse_pos.x), static_cast<float>(mouse_pos.y))) {
-            int selected_item = current_options[i];  // 记录选中道具
-            current_options.clear();                  // 清空选项（关闭面板）
-            return selected_item;                     // 返回道具索引
+            const int selected_item = current_options[i];
+            if (selected_item < 0 || selected_item >= ItemRegistry::itemCount()) {
+                current_options.clear();
+                return -1;
+            }
+            current_options.clear();
+            return selected_item;
         }
     }
 
@@ -157,10 +162,22 @@ void LevelUpPanel::render(sf::RenderWindow& window) {
     float start_x = (static_cast<float>(window.getSize().x) - total_width) / 2.f;
     float start_y = 180.f;  // 在标题下方
 
+    if (current_options.empty()) {
+        sf::Text empty_hint(L"道具池为空", font, 22);
+        empty_hint.setFillColor(sf::Color(180, 180, 180));
+        sf::FloatRect eb = empty_hint.getLocalBounds();
+        empty_hint.setOrigin(eb.width / 2.f, eb.height / 2.f);
+        empty_hint.setPosition(
+            static_cast<float>(window.getSize().x) / 2.f,
+            static_cast<float>(window.getSize().y) / 2.f);
+        window.draw(empty_hint);
+        return;
+    }
+
     // === 第 2 层：绘制 3 张卡牌 ===
     for (size_t i = 0; i < current_options.size(); ++i) {
         // 获取对应道具数据
-        const Item& item = ITEM_POOL[current_options[i]];
+        const ItemDisplay item = ItemRegistry::getDisplay(current_options[i]);
         float card_x = start_x + static_cast<float>(i) * (card_width + card_spacing);
 
         // --- 2a. 卡牌背景 ---
