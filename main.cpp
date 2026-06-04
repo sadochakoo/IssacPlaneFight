@@ -71,7 +71,6 @@
 #include "haemolacria.h"
 #include "ui_system.h"
 #include "game_character.h"
-#include "boss_system.h"
 #include "item_system.h"
 #include "module3_tears.h"
 
@@ -148,7 +147,6 @@ std::vector<Particle> particles;
 std::vector<SplitLaser> split_lasers;
 int g_frame_count = 0;
 
-BossSystem  g_boss_system;
 ItemManager g_item_manager;
 PlayerStatsItemFields       g_player_item_fields;
 item_combat::PassiveSpawnTimers g_passive_timers;
@@ -625,7 +623,6 @@ Player* reset_game(Player& player, UISystem& ui) {
     BabySystem::reset(player);
     g_frame_count = 0;
     health_drops.clear();
-    g_boss_system.clear();
     g_item_manager.clear();
     g_module3_damage_popups.clear();
     item_pickup_toast_queue().clear();
@@ -1149,7 +1146,6 @@ int main() {
                     ++i;
                 }
 
-                g_boss_system.update(dt);
                 g_item_manager.update(dt);
                 item_combat::update_passive_spawns(
                     player, g_item_manager, g_passive_timers, dt);
@@ -1158,7 +1154,7 @@ int main() {
                     g_screen_shake *= 0.88f;
                 }
 
-                // --- 投射物 vs 敌人/Boss（IDamageable 多态结算，仅 update 层）---
+                // --- 投射物 vs 敌人（IDamageable 多态结算，仅 update 层）---
                 std::vector<Bullet> pending_bullets;
                 pending_bullets.reserve(128);
 
@@ -1242,22 +1238,12 @@ int main() {
                             health_drops.push_back({enemy.x, enemy.y});
                         }
                     };
-                combat_cb.on_boss_hit =
-                    [](BaseBoss& boss, int /*dmg*/, bool killed) {
-                        if (!killed) {
-                            return;
-                        }
-                        game_score += boss.score_value();
-                        spawn_particles(
-                            boss.x(), boss.y(), sf::Color(200, 50, 200), 20);
-                    };
                 combat_cb.on_bullet_consumed =
                     [](Bullet& /*bullet*/) {};
 
                 g_item_manager.resolve_projectile_hits(
                     bullets,
                     enemies,
-                    g_boss_system,
                     player,
                     combat_cb,
                     pending_bullets);

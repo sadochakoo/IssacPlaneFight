@@ -2,7 +2,7 @@
  * item_system.h - 被动道具投射物 + 场控状态 + 与 IDamageable 的碰撞结算
  *
  * 模块一：PlayerStats 扩展 + StatusEffect + EnemyDamageable 场控实现 + UI 可读快照。
- * 约束：不修改 ui_system / boss_system；阵营交互仅经 IDamageable；id 纯小写。
+ * 约束：不修改 ui_system；阵营交互仅经 IDamageable；id 纯小写。
  *
  * 实现约定：EnemyDamageable / SpikeProjectile / 模块二投射物 等在本头文件内联实现。
  * 请勿在 item_system.cpp 中重复定义同名成员函数，否则链接报错。
@@ -12,7 +12,6 @@
 #define ITEM_SYSTEM_H
 
 #include "damageable.h"
-#include "boss_system.h"
 #include "player_stats.h"
 #include <SFML/Graphics.hpp>
 #include <algorithm>
@@ -1501,7 +1500,6 @@ private:
 
 struct ProjectileHitCallbacks {
     std::function<void(Enemy&, int damage, bool killed)> on_enemy_hit;
-    std::function<void(BaseBoss&, int damage, bool killed)> on_boss_hit;
     std::function<void(Bullet& bullet)> on_bullet_consumed;
 };
 
@@ -1527,13 +1525,12 @@ public:
     }
 
     /**
-     * 双层遍历：玩家 bullets + passives vs enemies + bosses。
-     * 命中结算仅通过 IDamageable 多态接口，不 static_cast 具体敌/Boss 类。
+     * 双层遍历：玩家 bullets + passives vs enemies。
+     * 命中结算仅通过 IDamageable 多态接口。
      */
     void resolve_projectile_hits(
         std::vector<Bullet>& bullets,
         std::vector<Enemy>& enemies,
-        BossSystem& boss_system,
         const Player& player,
         const ProjectileHitCallbacks& callbacks,
         std::vector<Bullet>& pending_bullets);

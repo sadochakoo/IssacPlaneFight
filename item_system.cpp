@@ -36,7 +36,6 @@ bool resolve_one_hit(
     IDamageable& target,
     const ProjectileHitCallbacks& callbacks,
     EnemyDamageable* enemy_view,
-    BaseBoss* boss_view,
     std::vector<Bullet>& pending_bullets,
     const Player*     player_for_splits = nullptr)
 {
@@ -75,10 +74,6 @@ bool resolve_one_hit(
                 module3::enqueue_apple_razor_splits(
                     *bullet_ptr, *player_for_splits, pending_bullets);
             }
-        }
-    } else if (boss_view != nullptr) {
-        if (callbacks.on_boss_hit) {
-            callbacks.on_boss_hit(*boss_view, dmg, killed);
         }
     }
 
@@ -193,7 +188,6 @@ void ItemManager::cull_dead_passives() {
 void ItemManager::resolve_projectile_hits(
     std::vector<Bullet>& bullets,
     std::vector<Enemy>& enemies,
-    BossSystem& boss_system,
     const Player& player,
     const ProjectileHitCallbacks& callbacks,
     std::vector<Bullet>& pending_bullets)
@@ -205,8 +199,6 @@ void ItemManager::resolve_projectile_hits(
     for (Enemy& enemy : enemies) {
         enemy_views.emplace_back(enemy);
     }
-
-    std::vector<IDamageable*> boss_targets = boss_system.damageable_view();
 
     // --- 玩家子弹（引用 bullets，不复制实体）---
     for (size_t bi = 0; bi < bullets.size(); ) {
@@ -228,36 +220,10 @@ void ItemManager::resolve_projectile_hits(
                     enemy_views[ei],
                     callbacks,
                     &enemy_views[ei],
-                    nullptr,
                     pending_bullets,
                     &player)) {
                 bullet_consumed = true;
                 break;
-            }
-        }
-
-        if (!bullet_consumed) {
-            for (IDamageable* boss_target : boss_targets) {
-                if (boss_target == nullptr || !boss_target->isAlive()) {
-                    continue;
-                }
-                auto* boss = dynamic_cast<BaseBoss*>(boss_target);
-                if (boss == nullptr) {
-                    continue;
-                }
-                BulletProjectile boss_proj(bullets[bi], player_damage);
-                if (resolve_one_hit(
-                        boss_proj,
-                        &bullets[bi],
-                        *boss_target,
-                        callbacks,
-                        nullptr,
-                        boss,
-                        pending_bullets,
-                        &player)) {
-                    bullet_consumed = true;
-                    break;
-                }
             }
         }
 
@@ -289,24 +255,6 @@ void ItemManager::resolve_projectile_hits(
                     enemy_views[ei],
                     callbacks,
                     &enemy_views[ei],
-                    nullptr,
-                    pending_bullets);
-            }
-            for (IDamageable* boss_target : boss_targets) {
-                if (boss_target == nullptr || !boss_target->isAlive()) {
-                    continue;
-                }
-                auto* boss = dynamic_cast<BaseBoss*>(boss_target);
-                if (boss == nullptr) {
-                    continue;
-                }
-                resolve_one_hit(
-                    projectile,
-                    nullptr,
-                    *boss_target,
-                    callbacks,
-                    nullptr,
-                    boss,
                     pending_bullets);
             }
             passives_.erase(passives_.begin() + static_cast<std::ptrdiff_t>(pi));
@@ -323,36 +271,10 @@ void ItemManager::resolve_projectile_hits(
                     enemy_views[ei],
                     callbacks,
                     &enemy_views[ei],
-                    nullptr,
                     pending_bullets)) {
                 projectile_consumed = projectile.consumes_on_hit();
                 if (projectile_consumed) {
                     break;
-                }
-            }
-        }
-
-        if (!projectile_consumed) {
-            for (IDamageable* boss_target : boss_targets) {
-                if (boss_target == nullptr || !boss_target->isAlive()) {
-                    continue;
-                }
-                auto* boss = dynamic_cast<BaseBoss*>(boss_target);
-                if (boss == nullptr) {
-                    continue;
-                }
-                if (resolve_one_hit(
-                        projectile,
-                        nullptr,
-                        *boss_target,
-                        callbacks,
-                        nullptr,
-                        boss,
-                        pending_bullets)) {
-                    projectile_consumed = projectile.consumes_on_hit();
-                    if (projectile_consumed) {
-                        break;
-                    }
                 }
             }
         }
@@ -364,5 +286,4 @@ void ItemManager::resolve_projectile_hits(
         }
     }
 
-    boss_system.remove_dead_bosses();
 }

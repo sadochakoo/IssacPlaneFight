@@ -18,6 +18,7 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{B2C3D4E5-F6A7-8901-BCDE-F23456789012}</ProjectGuid>
@@ -25,7 +26,9 @@
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
@@ -52,9 +55,12 @@
     <CharacterSet>Unicode</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared" />
+
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -67,6 +73,7 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+
   <PropertyGroup Label="UserMacros" />
   <!-- SFML：环境变量 SFML_DIR > D:\ > C:\ > 桌面 SFML-2.6.2 -->
   <PropertyGroup>
@@ -79,6 +86,7 @@
     <SFML_LIB_DIR>$(SFML_DIR)\lib</SFML_LIB_DIR>
     <SFML_LIB_DIR Condition="'$(Platform)'=='x64' and Exists('$(SFML_DIR)\lib\x64\sfml-graphics-s-d.lib')">$(SFML_DIR)\lib\x64</SFML_LIB_DIR>
   </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
@@ -95,10 +103,11 @@
     <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(TargetDir)bin\x64\$(Configuration)\</OutDir>
-    <IntDir>$(TargetDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
+    <OutDir>$(SolutionDir)bin\x64\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
     <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
   </PropertyGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
@@ -124,6 +133,7 @@ if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%
 exit /b 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
@@ -151,6 +161,7 @@ if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%
 exit /b 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
@@ -176,6 +187,7 @@ if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%
 exit /b 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
@@ -203,6 +215,7 @@ if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%
 exit /b 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="level_up_panel.cpp" />
@@ -220,12 +233,12 @@ exit /b 0</Command>
     <ClCompile Include="split_laser.cpp" />
     <ClCompile Include="haemolacria.cpp" />
     <ClCompile Include="ui_system.cpp" />
-    <ClCompile Include="boss_system.cpp" />
     <ClCompile Include="item_system.cpp" />
     <ClCompile Include="module3_tears.cpp" />
     <ClCompile Include="isaac_character.cpp" />
     <ClCompile Include="character_roster.cpp" />
   </ItemGroup>
+
   <ItemGroup>
     <ClInclude Include="player_stats.h" />
     <ClInclude Include="level_up_panel.h" />
@@ -244,7 +257,6 @@ exit /b 0</Command>
     <ClInclude Include="haemolacria.h" />
     <ClInclude Include="ui_system.h" />
     <ClInclude Include="damageable.h" />
-    <ClInclude Include="boss_system.h" />
     <ClInclude Include="item_system.h" />
     <ClInclude Include="module3_tears.h" />
     <ClInclude Include="player_stats_extension.h" />
@@ -252,6 +264,7 @@ exit /b 0</Command>
     <ClInclude Include="isaac_character.h" />
     <ClInclude Include="character_roster.h" />
   </ItemGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>
