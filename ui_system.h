@@ -5,9 +5,9 @@
  * 1. 分数达标升级时：ui.spawn_item_chest()，保持 PLAYING，不要立刻 LEVEL_UP
  * 2. 每帧 PLAYING：update_item_chest；返回 ReadyForItemPick 后再 begin_item_pick + LEVEL_UP
  * 3. LEVEL_UP：ui.update_item_pick / draw_item_pick；选中后 applyItem
- * 4. MENU → draw_waiting_screen（全屏参考图）；CHARACTER_SELECT → 参考底图 + 角色立绘
- *    角色类见 game_character.h / CharacterRoster；默认 Isaac + 以撒.png
- * 5. 战斗中：draw_room_background(floor)；draw_isaac_player 替代 CircleShape 机体
+ * 4. MENU → draw_waiting_screen（gfx/ui/waiting_screen.png）
+ *    CHARACTER_SELECT → gfx/ui/character_select_screen.png + gfx/ui/isaac_portrait.png
+ * 5. 战斗中：draw_room_background（gfx/rooms/room-N.png）；draw_isaac_player（gfx/player/0~5.png）
  */
 
 #ifndef UI_SYSTEM_H
@@ -213,7 +213,6 @@ private:
                              const sf::FloatRect& rect,
                              const sf::Color& accent) const;
 
-    static const char* item_icon_path(int registry_index);
 };
 
 #endif

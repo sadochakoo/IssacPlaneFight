@@ -13,13 +13,6 @@
 #include <iostream>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
-#endif
-
 namespace {
 
 constexpr float k_screen_center_x = 400.f;
@@ -57,48 +50,14 @@ bool ctrl_held() {
            sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
 }
 
-std::string utf8_from_wide(const std::wstring& wide) {
-    if (wide.empty()) {
-        return {};
+/** 相对 cwd 向上查找 gfx：./ → ../ → ../../ */
+void append_gfx_asset_paths(std::vector<std::string>& out, const char* relative) {
+    if (!relative || relative[0] == '\0') {
+        return;
     }
-    const int bytes = WideCharToMultiByte(
-        CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (bytes <= 0) {
-        return {};
-    }
-    std::string utf8(static_cast<size_t>(bytes - 1), '\0');
-    WideCharToMultiByte(
-        CP_UTF8, 0, wide.c_str(), -1, utf8.data(), bytes, nullptr, nullptr);
-    return utf8;
-}
-
-std::string executable_directory_utf8() {
-#ifdef _WIN32
-    wchar_t buffer[MAX_PATH] = {};
-    const DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) {
-        return {};
-    }
-    std::wstring path(buffer, buffer + length);
-    const size_t slash = path.find_last_of(L"\\/");
-    if (slash != std::wstring::npos) {
-        path.resize(slash + 1);
-    }
-    return utf8_from_wide(path);
-#else
-    return {};
-#endif
-}
-
-void append_path_candidates(std::vector<std::string>& out, const char* relative) {
     out.emplace_back(relative);
-    const std::string exe_dir = executable_directory_utf8();
-    if (!exe_dir.empty()) {
-        out.push_back(exe_dir + relative);
-    }
-    if (relative[0] != '.' && relative[1] != '.') {
-        out.emplace_back(std::string("../") + relative);
-    }
+    out.emplace_back(std::string("../") + relative);
+    out.emplace_back(std::string("../../") + relative);
 }
 
 bool try_load_texture_paths(sf::Texture& tex, const std::vector<std::string>& paths) {
@@ -110,19 +69,31 @@ bool try_load_texture_paths(sf::Texture& tex, const std::vector<std::string>& pa
     return false;
 }
 
+bool load_gfx_texture(sf::Texture& tex, const char* relative, bool smooth = true) {
+    std::vector<std::string> paths;
+    append_gfx_asset_paths(paths, relative);
+    if (!try_load_texture_paths(tex, paths)) {
+        return false;
+    }
+    tex.setSmooth(smooth);
+    return true;
+}
+
+void append_gfx_path(std::vector<std::string>& out, const char* relative) {
+    append_gfx_asset_paths(out, relative);
+}
+
 void configure_chest_texture(sf::Texture& tex) {
     tex.setSmooth(false);
 }
 
 bool load_chest_texture_file(sf::Texture& tex, const char* ascii_name) {
-    std::vector<std::string> paths;
     const std::string rel = std::string("gfx/ui/") + ascii_name;
-    append_path_candidates(paths, rel.c_str());
-    if (try_load_texture_paths(tex, paths)) {
-        configure_chest_texture(tex);
-        return true;
+    if (!load_gfx_texture(tex, rel.c_str(), false)) {
+        return false;
     }
-    return false;
+    configure_chest_texture(tex);
+    return true;
 }
 
 bool rects_overlap(const sf::FloatRect& a, const sf::FloatRect& b) {
@@ -133,22 +104,6 @@ bool rects_overlap(const sf::FloatRect& a, const sf::FloatRect& b) {
 }
 
 } // namespace
-
-// ==================== 资源路径 ====================
-const char* UISystem::item_icon_path(int registry_index) {
-    static const char* k_paths[] = {
-        u8"gfx/items/魔术弯勺.png",
-        u8"gfx/items/硫磺火.png",
-        u8"gfx/items/20-20.png",
-        u8"gfx/items/寄生虫.png",
-        u8"gfx/items/泪血症.png",
-    };
-    static const char* k_fallback = u8"gfx/items/糖心.png";
-    if (registry_index < 0 || registry_index >= 5) {
-        return k_fallback;
-    }
-    return k_paths[registry_index];
-}
 
 int UISystem::item_display_level(int registry_index, const Player& player) {
     switch (registry_index) {
@@ -227,23 +182,8 @@ const sf::Texture* UISystem::chest_texture_for_draw() const {
 }
 
 bool UISystem::load_flow_screen_texture(sf::Texture& tex, const char* ascii_file) {
-    std::vector<std::string> paths;
     const std::string rel = std::string("gfx/ui/") + ascii_file;
-    append_path_candidates(paths, rel.c_str());
-
-    if (std::string(ascii_file) == "waiting_screen.png") {
-        append_path_candidates(paths, u8"gfx/ui/等待界面.png");
-        append_path_candidates(paths, u8"gfx/ui/等待界面.jpg");
-    } else if (std::string(ascii_file) == "character_select_screen.png") {
-        append_path_candidates(paths, u8"gfx/ui/选择角色界面.png");
-        append_path_candidates(paths, u8"gfx/ui/选择角色界面.jpg");
-    }
-
-    if (!try_load_texture_paths(tex, paths)) {
-        return false;
-    }
-    tex.setSmooth(true);
-    return true;
+    return load_gfx_texture(tex, rel.c_str(), true);
 }
 
 bool UISystem::load_flow_textures() {
@@ -261,10 +201,10 @@ bool UISystem::load_character_portrait(CharacterId id, const char* relative_path
     }
 
     std::vector<std::string> paths;
-    append_path_candidates(paths, relative_path);
     if (id == CharacterId::Isaac) {
-        append_path_candidates(paths, "gfx/ui/isaac_portrait.png");
-        append_path_candidates(paths, u8"gfx/ui/以撒.png");
+        append_gfx_path(paths, "gfx/ui/isaac_portrait.png");
+    } else {
+        append_gfx_path(paths, relative_path);
     }
 
     sf::Texture tex;
@@ -280,8 +220,8 @@ bool UISystem::load_room_textures() {
     room_tex_loaded_ = true;
     for (int i = 0; i < 5; ++i) {
         const std::string path =
-            std::string(u8"gfx/rooms/room-") + std::to_string(i + 1) + ".png";
-        if (!room_textures_[i].loadFromFile(path)) {
+            std::string("gfx/rooms/room-") + std::to_string(i + 1) + ".png";
+        if (!load_gfx_texture(room_textures_[i], path.c_str(), false)) {
             room_tex_loaded_ = false;
         }
     }
@@ -301,7 +241,7 @@ bool UISystem::load_battle_anim_frames() {
         std::snprintf(path_buf, sizeof(path_buf), ch.battle_anim_pattern(), i);
 
         std::vector<std::string> paths;
-        append_path_candidates(paths, path_buf);
+        append_gfx_path(paths, path_buf);
         if (!try_load_texture_paths(battle_anim_frames_[i], paths)) {
             battle_anim_loaded_ = false;
         }
@@ -314,10 +254,10 @@ bool UISystem::load_item_icon(int registry_index) {
         return true;
     }
     sf::Texture tex;
-    if (!tex.loadFromFile(item_icon_path(registry_index))) {
-        if (!tex.loadFromFile(u8"gfx/items/糖心.png")) {
-            return false;
-        }
+    std::vector<std::string> paths;
+    append_gfx_path(paths, ItemRegistry::iconPath(registry_index));
+    if (!try_load_texture_paths(tex, paths)) {
+        return false;
     }
     tex.setSmooth(true);
     item_icon_by_registry_[registry_index] = std::move(tex);
@@ -342,7 +282,7 @@ bool UISystem::load_tear_textures() {
     for (int i = 0; i < static_cast<int>(TearTextureId::Count); ++i) {
         const auto id = static_cast<TearTextureId>(i);
         std::vector<std::string> paths;
-        append_path_candidates(paths, tear_texture_asset_path(id));
+        append_gfx_path(paths, tear_texture_asset_path(id));
         tear_texture_ok_[static_cast<size_t>(i)] =
             try_load_texture_paths(tear_textures_[static_cast<size_t>(i)], paths);
         if (tear_texture_ok_[static_cast<size_t>(i)]) {
@@ -642,7 +582,7 @@ void UISystem::draw_waiting_screen(sf::RenderWindow& window) {
     } else {
         window.clear(sf::Color(25, 15, 35));
         if (font_loaded_) {
-            sf::Text hint(L"缺少 gfx/ui/等待界面.png", font_, 20);
+            sf::Text hint(L"缺少 gfx/ui/waiting_screen.png", font_, 20);
             hint.setFillColor(sf::Color::White);
             center_text_origin(hint);
             hint.setPosition(k_screen_center_x, k_screen_h * 0.5f);
@@ -1137,6 +1077,10 @@ int UISystem::update_item_pick(sf::RenderWindow& window) {
 void UISystem::draw_item_pick(sf::RenderWindow& window) {
     if (pick_options_.empty()) {
         return;
+    }
+
+    for (const ItemPickOption& opt : pick_options_) {
+        load_item_icon(opt.registry_index);
     }
 
     sf::RectangleShape overlay(sf::Vector2f(window.getSize()));

@@ -17,12 +17,135 @@
     <ClCompile Include="level_up_panel.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="passive_items.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="item_registry.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="weapon_synergy_resolver.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="attack_resolver.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="baby_system.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="bullet_factory.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="brimstone_laser.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="player_item.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="item_test_loader.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="parasite_bullet.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="tear_profile.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="split_laser.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="haemolacria.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ui_system.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="boss_system.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="item_system.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="module3_tears.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="isaac_character.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="character_roster.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="player_stats.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="level_up_panel.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="passive_item.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="item_registry.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="weapon_profile.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="weapon_synergy_resolver.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="attack_profile.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="baby_system.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="bullet_factory.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="brimstone_laser.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="item_test_loader.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="parasite_bullet.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="tear_profile.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="split_laser.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="haemolacria.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ui_system.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="damageable.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="boss_system.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="item_system.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="module3_tears.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="player_stats_extension.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="game_character.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="isaac_character.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="character_roster.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

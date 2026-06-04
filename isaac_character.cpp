@@ -9,7 +9,7 @@ const wchar_t* IsaacCharacter::display_name() const {
 }
 
 const char* IsaacCharacter::select_portrait_path() const {
-    return u8"gfx/ui/以撒.png";
+    return "gfx/ui/isaac_portrait.png";
 }
 
 const char* IsaacCharacter::battle_anim_pattern() const {
