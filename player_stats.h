@@ -11,6 +11,8 @@
 #include <cmath>
 #include <algorithm>
 
+#include "player_stats_extension.h"
+
 class Item;
 
 // ==================== PlayerStats ====================
@@ -52,6 +54,8 @@ struct Bullet {
     bool  homing = false;
     float homing_strength = 0.f;
     sf::Color bullet_color = sf::Color(100, 200, 255);
+    /** 渲染贴图，见 tear_profile.h / TearTextureId */
+    int   texture_id = 0;
     bool  has_parasite = false;
     bool  is_baby_tear = false;
     int   generation = 0;
@@ -61,10 +65,24 @@ struct Bullet {
     bool  is_haemolacria_shard = false;
     bool  is_haemolacria_orb = false;
     bool  is_dead = false;
+    bool  loyal_to_player = false; // 倒戈敌人弹幕：效忠玩家，命中敌方阵营
     float target_y = 0.f;
     float start_y = 0.f;
     float arc_progress = 0.f;
     float visual_scale = 1.f;
+
+    // 模块三泪弹变异（苹果刀片 / 背叛 / 神性 / 玻璃碎片）
+    bool  module3_apple_razor   = false;
+    bool  module3_betrayal_tear = false;
+    bool  module3_godhead       = false;
+    bool  module3_glass         = false;
+    bool  module3_apple_shred   = false;
+    float module3_spin          = 0.f;
+    float module3_spawn_x       = 0.f;
+    float module3_spawn_y       = 0.f;
+    int   module3_godhead_aura_cd = 0;
+    int   module3_prism_flash   = 0;
+    std::vector<sf::Vector2f> module3_trail;
 
     Bullet() {
         update_radius_from_generation();
@@ -103,6 +121,29 @@ struct Enemy {
     float shoot_timer = 0.f;
     float spiral_angle = 0.f;
     int   parasite_split_cooldown = 0;
+
+    // 场控状态（持久化，跨帧；由 EnemyDamageable / main 读写）
+    bool  combat_betrayed = false;
+    int   combat_freeze_frames = 0;
+    int   combat_betrayal_frames = 0; // 背叛道具魅惑剩余帧数
+    int   combat_knockback_stun = 0;
+    int   combat_knockback_trail = 0;
+    int   combat_shockwave = 0;
+    int   combat_freeze_shatter = 0;
+    int   combat_freeze_hit_burst = 0;
+    int   combat_freeze_recondense = 0;
+    float combat_saved_vx = 0.f; // 冰冻前速度，解冻后恢复下落
+    float combat_saved_vy = 0.f;
+    float combat_betray_halo_angle = 0.f;
+    bool  combat_screen_shake_pending = false;
+    float combat_screen_shake_strength = 0.f;
+    float combat_shockwave_x = 0.f;
+    float combat_shockwave_y = 0.f;
+    float combat_ghost_x[3] = {};
+    float combat_ghost_y[3] = {};
+    float combat_ghost_alpha[3] = {};
+    int   combat_ghost_count = 0;
+    int   combat_betray_blend = 0; // 倒戈颜色渐变 0~18 帧
 };
 
 struct Particle {
@@ -123,6 +164,7 @@ public:
     sf::Vector2f pos;
     PlayerStats  stats;
     PlayerStats  base_stats;
+    PlayerStatsExtension stats_ext;
 
     int  fire_cooldown = 0;
     int  shield_timer = 0;
@@ -151,6 +193,7 @@ public:
     Player() {
         pos = sf::Vector2f(400.f, 700.f);
         base_stats = stats;
+        stats_ext.base_speed = static_cast<float>(stats.speed);
         fire_cooldown = 0;
         max_charge = 60;
         laser_duration_max = 30;

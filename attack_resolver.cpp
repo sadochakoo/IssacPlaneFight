@@ -19,7 +19,11 @@ AttackProfile buildAttackProfile(const Player& player) {
 
     // ── 3. 追踪叠加（弯勺）：对激光与普通弹均生效 ──
     profile.tracking_level = std::max(0, s.tracking_level);
-    if (profile.usesHoming()) {
+    if (player.stats_ext.has_godhead) {
+        profile.tracking_level = std::max(1, profile.tracking_level);
+        profile.homing_strength = 520.f;
+        profile.bullet_color    = sf::Color(255, 220, 80);
+    } else if (profile.usesHoming()) {
         profile.homing_strength =
             360.f + 40.f * static_cast<float>(profile.tracking_level - 1);
         profile.bullet_color = sf::Color(200, 80, 255);

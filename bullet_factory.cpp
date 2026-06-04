@@ -3,6 +3,7 @@
 #include "brimstone_laser.h"
 #include "parasite_bullet.h"
 #include "haemolacria.h"
+#include "module3_tears.h"
 #include <algorithm>
 #include <cmath>
 
@@ -144,17 +145,33 @@ void BulletFactory::updateBullets(
             --b.bounce_split_cooldown;
         }
 
-        if (b.homing && !b.is_baby_tear && !enemies.empty()) {
+        const bool steer_homing =
+            (b.homing || b.module3_godhead) && !b.is_baby_tear && !enemies.empty();
+        if (steer_homing) {
             const int target = find_nearest_enemy_index(enemies, b.x, b.y);
             if (target >= 0 && target < static_cast<int>(enemies.size())) {
                 float dx = enemies[target].x - b.x;
-                float steer = b.homing_strength * dt;
-                if (dx > 5.f) b.vx += steer;
-                else if (dx < -5.f) b.vx -= steer;
+                float dy = enemies[target].y - b.y;
+                const float steer = b.homing_strength * dt;
+                if (dx > 5.f) {
+                    b.vx += steer;
+                } else if (dx < -5.f) {
+                    b.vx -= steer;
+                }
+                if (b.module3_godhead) {
+                    if (dy > 5.f) {
+                        b.vy += steer * 0.85f;
+                    } else if (dy < -5.f) {
+                        b.vy -= steer * 0.85f;
+                    }
+                }
 
                 float max_vx = player_shot_speed * 0.85f;
+                float max_vy = player_shot_speed * 0.85f;
                 if (b.vx > max_vx) b.vx = max_vx;
                 if (b.vx < -max_vx) b.vx = -max_vx;
+                if (b.vy > max_vy) b.vy = max_vy;
+                if (b.vy < -max_vy) b.vy = -max_vy;
             }
         }
 

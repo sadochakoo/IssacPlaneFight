@@ -1,0 +1,318 @@
+{
+  "schema": "combat_status_v2",
+  "description": "模块一场控 + 模块二投射物联调。load_test_case(player, case_id) 自动搜索本文件；PLAYING 状态下按数字键 7-0。",
+  "hotkeys": {
+    "Num7": "test_07_mirror_clone",
+    "Num8": "test_08_item_panel_full",
+    "Num9": "test_09_speed_debuff_ui",
+    "Num0": "test_10_glass_apple"
+  },
+  "test_cases": [
+    {
+      "case_id": "test_07_mirror_clone",
+      "name": "镜之分身等级 ×3",
+      "description": "状态栏显示分身图标 + 数字 3；左上角 mirror_clone_level=3",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 3,
+        "has_glass_shard": false,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": false,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "pickup_toast_item_id": "mirror_clone"
+    },
+    {
+      "case_id": "test_08_item_panel_full",
+      "name": "被动状态栏满配",
+      "description": "玻璃碎片/迷你星球/神性/禁果 均为亮色；effective_speed=320",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 1,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 1,
+        "has_glass_shard": true,
+        "has_tiny_planet": true,
+        "has_godhead": true,
+        "has_apple": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      }
+    },
+    {
+      "case_id": "test_09_speed_debuff_ui",
+      "name": "减速条红色闪烁",
+      "description": "current_speed_multiplier=0.56，base_speed=320 → 有效速度约 180；speed_debuff_flash=true",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 180
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": false,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": false,
+        "base_speed": 320,
+        "current_speed_multiplier": 0.56
+      }
+    },
+    {
+      "case_id": "test_10_glass_apple",
+      "name": "玻璃碎片 + 禁果",
+      "description": "has_glass_shard + has_apple；拾取提示 item_id: glass_shard / apple",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": true,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "pickup_toast_item_id": "glass_shard"
+    },
+    {
+      "case_id": "test_11_tiny_planet",
+      "name": "迷你星球",
+      "description": "has_tiny_planet=true；可 spawn OrbitingTear 验证螺旋公转",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": false,
+        "has_tiny_planet": true,
+        "has_godhead": false,
+        "has_apple": false,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "pickup_toast_item_id": "tiny_planet",
+      "spawn_hint": "g_item_manager.spawn_passive(std::make_unique<OrbitingTear>(...))"
+    },
+    {
+      "case_id": "test_12_combat_manual",
+      "name": "场控 IDamageable 手动联调",
+      "description": "对敌人 EnemyDamageable 调用 setFaction/applyFreeze/applyKnockback，查 combat_status_icons",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 2,
+        "has_glass_shard": true,
+        "has_tiny_planet": true,
+        "has_godhead": true,
+        "has_apple": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "manual_checks": [
+        "setFaction(Faction::player) → 敌机变蓝 + combat_status_icon::betrayed",
+        "applyFreeze(300) → isFrozen() && freeze_frames_remaining() > 0",
+        "applyKnockback(40) → knockback_trail_intensity() > 0",
+        "血条下显示 ❄️ 🔄 💨 图标位掩码"
+      ]
+    },
+    {
+      "case_id": "test_13_apply_slow",
+      "name": "applySlow 减速恢复",
+      "description": "item_extension 模拟 applySlow(0.5, 180帧)；加载后调用 fields.applySlow 验证",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": false,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": false,
+        "base_speed": 320,
+        "current_speed_multiplier": 0.5
+      },
+      "manual_checks": [
+        "PlayerStatsItemFields::applySlow(0.5f, 180)",
+        "每帧 tick_one_frame() 直至 multiplier 回到 1.0"
+      ]
+    },
+    {
+      "case_id": "test_14_module2_projectiles",
+      "name": "模块二投射物清单",
+      "description": "OrbitingTear / LaserRing / EpicCrosshair / IceCubeBaby",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 1,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": true,
+        "has_tiny_planet": true,
+        "has_godhead": false,
+        "has_apple": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "manual_checks": [
+        "OrbitingTear: cos/sin 螺旋 + orbit_radius 递增",
+        "LaserRing: test_hit 圆环边缘",
+        "EpicCrosshair: 60 帧后 is_aoe_burst + 圆形伤害",
+        "IceCubeBaby: applyFreeze(300) + 屏幕反弹"
+      ]
+    },
+    {
+      "case_id": "test_15_spike_nail",
+      "name": "八寸钉径向击退",
+      "description": "has_spike_nail=true；八向尖刺自动发射，命中推开80-150px+残影+冲击波+震屏",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": false,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": false,
+        "has_spike_nail": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "manual_checks": [
+        "尖刺命中 → 径向推开 80~150px",
+        "2~3 半透明残像 + 路径渐隐线",
+        "命中点冲击波环 + 约0.2s无法射击",
+        "F11 立即补一发八向尖刺"
+      ]
+    },
+    {
+      "case_id": "test_16_ice_baby",
+      "name": "冰块宝宝冰冻",
+      "description": "has_ice_baby=true；弹跳冰弹命中 applyFreeze(300)，冰层/雪花/❄倒计时",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": false,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": false,
+        "has_spike_nail": false,
+        "has_ice_baby": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "manual_checks": [
+        "IceCubeBaby 命中 → 停止移动/停火 5 秒",
+        "血条下 ❄ + 帧倒计时；受击碎裂闪",
+        "周围飘雪 + 解除前裂纹闪烁",
+        "游戏窗口获得焦点后按 B 立即补一枚冰弹（勿在 VS 里按 F12）"
+      ]
+    },
+    {
+      "case_id": "test_17_betrayal",
+      "name": "背叛倒戈",
+      "description": "has_betrayal=true（背叛道具）；命中使敌人魅惑并倒戈，转而攻击其他敌人",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 0,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": false,
+        "has_tiny_planet": false,
+        "has_godhead": false,
+        "has_apple": false,
+        "has_spike_nail": false,
+        "has_ice_baby": false,
+        "has_betrayal": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "manual_checks": [
+        "拾取「背叛」后，子弹/尖刺命中 → 魅惑并倒戈（蓝紫机体+旋转光环）",
+        "血条下倒戈图标；倒戈期间不碰撞伤害玩家",
+        "倒戈敌人发射蓝色弹幕攻击其他敌机",
+        "F6 预览背叛效果；F8 加载本测试用例"
+      ]
+    },
+    {
+      "case_id": "test_18_module3_tears",
+      "name": "模块三泪弹",
+      "description": "苹果刀片+背叛+神性+玻璃碎片：玩家弹幕变异",
+      "stats_modifier": {
+        "brimstone_level": 0,
+        "tracking_level": 0,
+        "extra_bullets": 1,
+        "baby_count": 0,
+        "speed": 320
+      },
+      "item_extension": {
+        "mirror_clone_level": 0,
+        "has_glass_shard": true,
+        "has_tiny_planet": false,
+        "has_godhead": true,
+        "has_apple": true,
+        "has_spike_nail": false,
+        "has_ice_baby": false,
+        "has_betrayal": true,
+        "base_speed": 320,
+        "current_speed_multiplier": 1.0
+      },
+      "pickup_toast_item_id": "godhead",
+      "manual_checks": [
+        "F9 四种全开；Shift+1~4 单测苹果/背叛/神性/玻璃；空格射击",
+        "贴脸输出玻璃弹：红色大伤害数字；远离灰色小字",
+        "命中敌机：八向银白小刀片分裂；背叛弹粉色心形+倒戈提示",
+        "左上角状态栏：🔪💜👁💎 图标"
+      ]
+    }
+  ]
+}

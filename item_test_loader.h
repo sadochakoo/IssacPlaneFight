@@ -1,5 +1,5 @@
 /*
- * item_test_loader.h - 从 test_items.json 加载调试用例（nlohmann/json）
+ * item_test_loader.h - 从 test_items.json / test_combat_status.json 加载调试用例
  */
 
 #ifndef ITEM_TEST_LOADER_H
@@ -8,10 +8,10 @@
 #include "player_stats.h"
 #include <string>
 
-// 按 case_id 覆盖 player.stats 层数，并同步宝宝/激光状态
+/** 按 case_id 搜索 test_items.json，再搜 test_combat_status.json */
 bool load_test_case(Player& player, const std::string& target_case_id);
 
-// 配置文件路径（与 exe 同目录的 test_items.json）
 const char* test_items_config_path();
+const char* test_combat_status_config_path();
 
 #endif

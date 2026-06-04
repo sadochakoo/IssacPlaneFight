@@ -1,17 +1,33 @@
 #include "ui_system.h"
+#include "character_roster.h"
 #include "player_stats.h"
 #include "attack_profile.h"
 #include "item_registry.h"
+#include "tear_profile.h"
 
 #include <algorithm>
 #include <cmath>
 #include <random>
 #include <string>
+#include <cstdio>
+#include <iostream>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
 
 namespace {
 
 constexpr float k_screen_center_x = 400.f;
 constexpr float k_screen_h        = 900.f;
+/** 碰撞后展示打开宝箱贴图的时长（秒） */
+constexpr float k_chest_open_reveal_duration = 0.75f;
+/** 战斗中玩家精灵目标边长（像素）；仅视觉，不影响碰撞盒 */
+constexpr float k_battle_player_sprite_px = 88.f;
 
 void center_text_origin(sf::Text& text, bool center_y = false) {
     const sf::FloatRect bounds = text.getLocalBounds();
@@ -41,32 +57,97 @@ bool ctrl_held() {
            sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
 }
 
+std::string utf8_from_wide(const std::wstring& wide) {
+    if (wide.empty()) {
+        return {};
+    }
+    const int bytes = WideCharToMultiByte(
+        CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (bytes <= 0) {
+        return {};
+    }
+    std::string utf8(static_cast<size_t>(bytes - 1), '\0');
+    WideCharToMultiByte(
+        CP_UTF8, 0, wide.c_str(), -1, utf8.data(), bytes, nullptr, nullptr);
+    return utf8;
+}
+
+std::string executable_directory_utf8() {
+#ifdef _WIN32
+    wchar_t buffer[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) {
+        return {};
+    }
+    std::wstring path(buffer, buffer + length);
+    const size_t slash = path.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) {
+        path.resize(slash + 1);
+    }
+    return utf8_from_wide(path);
+#else
+    return {};
+#endif
+}
+
+void append_path_candidates(std::vector<std::string>& out, const char* relative) {
+    out.emplace_back(relative);
+    const std::string exe_dir = executable_directory_utf8();
+    if (!exe_dir.empty()) {
+        out.push_back(exe_dir + relative);
+    }
+    if (relative[0] != '.' && relative[1] != '.') {
+        out.emplace_back(std::string("../") + relative);
+    }
+}
+
+bool try_load_texture_paths(sf::Texture& tex, const std::vector<std::string>& paths) {
+    for (const std::string& path : paths) {
+        if (!path.empty() && tex.loadFromFile(path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void configure_chest_texture(sf::Texture& tex) {
+    tex.setSmooth(false);
+}
+
+bool load_chest_texture_file(sf::Texture& tex, const char* ascii_name) {
+    std::vector<std::string> paths;
+    const std::string rel = std::string("gfx/ui/") + ascii_name;
+    append_path_candidates(paths, rel.c_str());
+    if (try_load_texture_paths(tex, paths)) {
+        configure_chest_texture(tex);
+        return true;
+    }
+    return false;
+}
+
+bool rects_overlap(const sf::FloatRect& a, const sf::FloatRect& b) {
+    return a.left < b.left + b.width &&
+           a.left + a.width > b.left &&
+           a.top < b.top + b.height &&
+           a.top + a.height > b.top;
+}
+
 } // namespace
 
 // ==================== 资源路径 ====================
 const char* UISystem::item_icon_path(int registry_index) {
     static const char* k_paths[] = {
-        u8"gfx/items/寻友护符.png",   // 0 魔术弯勺
-        u8"gfx/items/糖心.png",       // 1 硫磺火
-        u8"gfx/items/寻友护符.png",   // 2 20/20（双发视觉）
-        u8"gfx/items/冰块宝宝.png",   // 3 寄生虫
-        u8"gfx/items/背叛.png",       // 4 泪血症（血刃/爆裂视觉）
+        u8"gfx/items/魔术弯勺.png",
+        u8"gfx/items/硫磺火.png",
+        u8"gfx/items/20-20.png",
+        u8"gfx/items/寄生虫.png",
+        u8"gfx/items/泪血症.png",
     };
+    static const char* k_fallback = u8"gfx/items/糖心.png";
     if (registry_index < 0 || registry_index >= 5) {
-        return u8"gfx/items/糖心.png";
+        return k_fallback;
     }
     return k_paths[registry_index];
-}
-
-const CharacterVisualProfile& UISystem::profile_for(CharacterId id) {
-    static const CharacterVisualProfile k_isaac = {
-        CharacterId::Isaac,
-        "Isaac",
-        "gfx/player/%d.png",
-        6
-    };
-    (void)id;
-    return k_isaac;
 }
 
 int UISystem::item_display_level(int registry_index, const Player& player) {
@@ -88,18 +169,111 @@ bool UISystem::load_font() {
     return font_.loadFromFile("C:/Windows/Fonts/arial.ttf");
 }
 
+void UISystem::sync_chest_hitbox_from_texture(const sf::Texture& tex) {
+    const sf::Vector2u sz = tex.getSize();
+    if (sz.x == 0 || sz.y == 0) {
+        return;
+    }
+    constexpr float k_display_px = 56.f;
+    const float scale =
+        k_display_px / static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
+    chest_.half_w = static_cast<float>(sz.x) * scale * 0.5f;
+    chest_.half_h = static_cast<float>(sz.y) * scale * 0.5f;
+}
+
 bool UISystem::load_chest_textures() {
-    chest_tex_loaded_ =
-        tex_chest_closed_.loadFromFile(u8"gfx/ui/宝箱0.png") &&
-        tex_chest_open_.loadFromFile(u8"gfx/ui/宝箱1.png");
-    return chest_tex_loaded_;
+    chest_closed_tex_ok_ = load_chest_texture_file(tex_chest_closed_, "chest_closed.png");
+    chest_open_tex_ok_   = load_chest_texture_file(tex_chest_open_, "chest_open.png");
+
+    if (chest_closed_tex_ok_) {
+        sync_chest_hitbox_from_texture(tex_chest_closed_);
+    } else if (chest_open_tex_ok_) {
+        sync_chest_hitbox_from_texture(tex_chest_open_);
+    }
+    return chest_closed_tex_ok_ || chest_open_tex_ok_;
+}
+
+void UISystem::ensure_chest_textures_loaded() {
+    if (!chest_closed_tex_ok_) {
+        chest_closed_tex_ok_ = load_chest_texture_file(tex_chest_closed_, "chest_closed.png");
+    }
+    if (!chest_open_tex_ok_) {
+        chest_open_tex_ok_ = load_chest_texture_file(tex_chest_open_, "chest_open.png");
+    }
+    if (chest_closed_tex_ok_) {
+        sync_chest_hitbox_from_texture(tex_chest_closed_);
+    } else if (chest_open_tex_ok_) {
+        sync_chest_hitbox_from_texture(tex_chest_open_);
+    }
+}
+
+const sf::Texture* UISystem::chest_texture_for_draw() const {
+    if (chest_.opened) {
+        if (chest_open_tex_ok_) {
+            return &tex_chest_open_;
+        }
+        if (chest_closed_tex_ok_) {
+            return &tex_chest_closed_;
+        }
+        return nullptr;
+    }
+    if (chest_closed_tex_ok_) {
+        return &tex_chest_closed_;
+    }
+    if (chest_open_tex_ok_) {
+        return &tex_chest_open_;
+    }
+    return nullptr;
+}
+
+bool UISystem::load_flow_screen_texture(sf::Texture& tex, const char* ascii_file) {
+    std::vector<std::string> paths;
+    const std::string rel = std::string("gfx/ui/") + ascii_file;
+    append_path_candidates(paths, rel.c_str());
+
+    if (std::string(ascii_file) == "waiting_screen.png") {
+        append_path_candidates(paths, u8"gfx/ui/等待界面.png");
+        append_path_candidates(paths, u8"gfx/ui/等待界面.jpg");
+    } else if (std::string(ascii_file) == "character_select_screen.png") {
+        append_path_candidates(paths, u8"gfx/ui/选择角色界面.png");
+        append_path_candidates(paths, u8"gfx/ui/选择角色界面.jpg");
+    }
+
+    if (!try_load_texture_paths(tex, paths)) {
+        return false;
+    }
+    tex.setSmooth(true);
+    return true;
 }
 
 bool UISystem::load_flow_textures() {
-    flow_tex_loaded_ =
-        tex_waiting_.loadFromFile(u8"gfx/ui/等待界面.jpg") &&
-        tex_char_select_.loadFromFile(u8"gfx/ui/选择角色界面.jpg");
+    const bool waiting_ok = load_flow_screen_texture(tex_waiting_, "waiting_screen.png");
+    const bool select_ok =
+        load_flow_screen_texture(tex_char_select_, "character_select_screen.png");
+    flow_tex_loaded_ = waiting_ok && select_ok;
     return flow_tex_loaded_;
+}
+
+bool UISystem::load_character_portrait(CharacterId id, const char* relative_path) {
+    const int key = static_cast<int>(id);
+    if (portrait_by_character_.count(key) != 0) {
+        return true;
+    }
+
+    std::vector<std::string> paths;
+    append_path_candidates(paths, relative_path);
+    if (id == CharacterId::Isaac) {
+        append_path_candidates(paths, "gfx/ui/isaac_portrait.png");
+        append_path_candidates(paths, u8"gfx/ui/以撒.png");
+    }
+
+    sf::Texture tex;
+    if (!try_load_texture_paths(tex, paths)) {
+        return false;
+    }
+    tex.setSmooth(false);
+    portrait_by_character_[key] = std::move(tex);
+    return true;
 }
 
 bool UISystem::load_room_textures() {
@@ -117,15 +291,22 @@ bool UISystem::load_room_textures() {
     return room_tex_loaded_;
 }
 
-bool UISystem::load_isaac_frames() {
-    isaac_tex_loaded_ = true;
-    for (int i = 0; i < 6; ++i) {
-        const std::string path = std::string(u8"gfx/player/") + std::to_string(i) + ".png";
-        if (!isaac_frames_[i].loadFromFile(path)) {
-            isaac_tex_loaded_ = false;
+bool UISystem::load_battle_anim_frames() {
+    const GameCharacter& ch = CharacterRoster::instance().selected();
+    const int frame_count = std::max(1, ch.battle_frame_count());
+    battle_anim_loaded_ = true;
+
+    for (int i = 0; i < frame_count && i < 6; ++i) {
+        char path_buf[128] = {};
+        std::snprintf(path_buf, sizeof(path_buf), ch.battle_anim_pattern(), i);
+
+        std::vector<std::string> paths;
+        append_path_candidates(paths, path_buf);
+        if (!try_load_texture_paths(battle_anim_frames_[i], paths)) {
+            battle_anim_loaded_ = false;
         }
     }
-    return isaac_tex_loaded_;
+    return battle_anim_loaded_;
 }
 
 bool UISystem::load_item_icon(int registry_index) {
@@ -134,23 +315,145 @@ bool UISystem::load_item_icon(int registry_index) {
     }
     sf::Texture tex;
     if (!tex.loadFromFile(item_icon_path(registry_index))) {
-        return false;
+        if (!tex.loadFromFile(u8"gfx/items/糖心.png")) {
+            return false;
+        }
     }
     tex.setSmooth(true);
     item_icon_by_registry_[registry_index] = std::move(tex);
     return true;
 }
 
+void UISystem::reset_run_state() {
+    chest_.active = false;
+    chest_.opened = false;
+    chest_.opening_reveal_timer = 0.f;
+    chest_.vy = 0.f;
+    pick_options_.clear();
+    char_select_block_confirm_until_key_up_ = false;
+}
+
+void UISystem::notify_enter_character_select_screen() {
+    char_select_block_confirm_until_key_up_ = true;
+}
+
+bool UISystem::load_tear_textures() {
+    bool any_ok = false;
+    for (int i = 0; i < static_cast<int>(TearTextureId::Count); ++i) {
+        const auto id = static_cast<TearTextureId>(i);
+        std::vector<std::string> paths;
+        append_path_candidates(paths, tear_texture_asset_path(id));
+        tear_texture_ok_[static_cast<size_t>(i)] =
+            try_load_texture_paths(tear_textures_[static_cast<size_t>(i)], paths);
+        if (tear_texture_ok_[static_cast<size_t>(i)]) {
+            tear_textures_[static_cast<size_t>(i)].setSmooth(true);
+            any_ok = true;
+        }
+    }
+    return any_ok;
+}
+
+void UISystem::ensure_tear_textures_loaded() {
+    if (std::none_of(
+            tear_texture_ok_.begin(),
+            tear_texture_ok_.end(),
+            [](bool ok) { return ok; })) {
+        load_tear_textures();
+    }
+}
+
+void UISystem::draw_player_tears(sf::RenderWindow& window,
+                                 const Player& player,
+                                 const std::vector<Bullet>& tears)
+{
+    ensure_tear_textures_loaded();
+
+    for (const Bullet& t : tears) {
+        if (t.is_dead || t.is_haemolacria_orb) {
+            continue;
+        }
+        if (t.module3_apple_razor || t.module3_betrayal_tear
+            || t.module3_godhead || t.module3_glass) {
+            continue;
+        }
+
+        const TearTextureId tex_id = resolve_player_tear_texture(player, t);
+        const size_t slot = static_cast<size_t>(tex_id);
+        const float scale_mul = std::max(0.35f, t.visual_scale);
+        const float diameter = t.radius * 2.f * scale_mul;
+
+        if (slot < tear_texture_ok_.size() && tear_texture_ok_[slot]) {
+            const sf::Texture& tex = tear_textures_[slot];
+            sf::Sprite sprite(tex);
+            const sf::Vector2u sz = tex.getSize();
+            if (sz.x == 0 || sz.y == 0) {
+                continue;
+            }
+            const float s =
+                diameter / static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
+            sprite.setScale(s, s);
+            sprite.setOrigin(
+                static_cast<float>(sz.x) * 0.5f,
+                static_cast<float>(sz.y) * 0.5f);
+            sprite.setPosition(t.x, t.y);
+            sprite.setColor(t.bullet_color);
+            window.draw(sprite);
+            continue;
+        }
+
+        sf::CircleShape fallback(t.radius * scale_mul);
+        fallback.setOrigin(fallback.getRadius(), fallback.getRadius());
+        fallback.setPosition(t.x, t.y);
+        fallback.setFillColor(t.bullet_color);
+        window.draw(fallback);
+    }
+}
+
 bool UISystem::initialize() {
+    reset_run_state();
+    CharacterRoster::instance().initialize();
+
     font_loaded_ = load_font();
     load_chest_textures();
     load_flow_textures();
     load_room_textures();
-    load_isaac_frames();
+    load_battle_anim_frames();
+    load_tear_textures();
+
+    const GameCharacter& selected = CharacterRoster::instance().selected();
+    load_character_portrait(selected.id(), selected.select_portrait_path());
+
     for (int i = 0; i < ItemRegistry::itemCount(); ++i) {
         load_item_icon(i);
     }
     return font_loaded_;
+}
+
+void UISystem::draw_debug_toast(sf::RenderWindow& window,
+                                const std::wstring& message) const
+{
+    sf::RectangleShape bar(sf::Vector2f(780.f, 32.f));
+    bar.setPosition(10.f, 48.f);
+    bar.setFillColor(sf::Color(0, 80, 160, 230));
+    bar.setOutlineColor(sf::Color(100, 220, 255));
+    bar.setOutlineThickness(2.f);
+    window.draw(bar);
+
+    if (!font_loaded_ || message.empty()) {
+        sf::RectangleShape ok(sf::Vector2f(120.f, 12.f));
+        ok.setPosition(340.f, 58.f);
+        ok.setFillColor(sf::Color(80, 255, 120));
+        window.draw(ok);
+        return;
+    }
+
+    sf::Text text(message, font_, 18);
+    text.setFillColor(sf::Color(230, 250, 255));
+    text.setOutlineColor(sf::Color(10, 40, 80));
+    text.setOutlineThickness(1.f);
+    center_text_origin(text, false);
+    text.setPosition(k_screen_center_x, 52.f);
+    window.draw(text);
 }
 
 const sf::Font& UISystem::font() const {
@@ -183,6 +486,33 @@ void UISystem::draw_sprite_fit(sf::RenderWindow& window,
     window.draw(sprite);
 }
 
+void UISystem::draw_sprite_cover(sf::RenderWindow& window, const sf::Texture& tex) const
+{
+    const sf::Vector2u win = window.getSize();
+    const float win_w = static_cast<float>(win.x);
+    const float win_h = static_cast<float>(win.y);
+    const sf::Vector2u sz = tex.getSize();
+    if (sz.x == 0 || sz.y == 0 || win.x == 0 || win.y == 0) {
+        return;
+    }
+
+    const float tex_w = static_cast<float>(sz.x);
+    const float tex_h = static_cast<float>(sz.y);
+    const float scale = std::max(win_w / tex_w, win_h / tex_h);
+
+    sf::Sprite sprite(tex);
+    sprite.setOrigin(tex_w * 0.5f, tex_h * 0.5f);
+    sprite.setPosition(win_w * 0.5f, win_h * 0.5f);
+    sprite.setScale(scale, scale);
+    window.draw(sprite);
+}
+
+void UISystem::draw_flow_fullscreen(sf::RenderWindow& window, const sf::Texture& tex) const
+{
+    window.clear(sf::Color(18, 14, 22));
+    draw_sprite_cover(window, tex);
+}
+
 void UISystem::draw_sprite_cover_rotated_90(sf::RenderWindow& window,
                                             const sf::Texture& tex) const
 {
@@ -212,13 +542,13 @@ void UISystem::draw_level_badge(sf::RenderWindow& window,
                                 float y,
                                 int level) const
 {
-    constexpr float k_scale = 3.f;
-    const float w = 3.f * k_scale;
-    const float h = 4.f * k_scale;
+    constexpr float k_unit = 4.f;
+    const float w = 3.f * k_unit;
+    const float h = 4.f * k_unit;
 
     sf::RectangleShape bg(sf::Vector2f(w, h));
     bg.setFillColor(level_badge_color(level));
-    bg.setOutlineThickness(1.f);
+    bg.setOutlineThickness(2.f);
     bg.setOutlineColor(sf::Color(30, 25, 20));
     bg.setPosition(x, y);
     window.draw(bg);
@@ -227,8 +557,10 @@ void UISystem::draw_level_badge(sf::RenderWindow& window,
         return;
     }
 
-    sf::Text num(std::to_wstring(std::clamp(level, 0, 4)), font_, static_cast<unsigned>(8 * k_scale));
+    const int clamped = std::clamp(level, 0, 4);
+    sf::Text num(std::to_wstring(clamped), font_, 16);
     num.setFillColor(sf::Color::White);
+    num.setStyle(sf::Text::Bold);
     const sf::FloatRect tb = num.getLocalBounds();
     num.setOrigin(tb.width / 2.f, tb.height / 2.f);
     num.setPosition(x + w * 0.5f, y + h * 0.5f);
@@ -254,64 +586,133 @@ void UISystem::draw_parchment_card(sf::RenderWindow& window,
     window.draw(inner);
 }
 
+namespace {
+
+constexpr float k_char_portrait_x       = 400.f;
+constexpr float k_char_portrait_y       = 388.f;
+constexpr float k_char_portrait_display = 92.f;
+constexpr float k_char_stat_col_x       = 332.f;
+constexpr float k_char_stat_health_y    = 498.f;
+constexpr float k_char_stat_speed_y     = 538.f;
+constexpr float k_char_stat_damage_y    = 578.f;
+
+} // namespace
+
+void UISystem::draw_character_portrait(sf::RenderWindow& window,
+                                      const sf::Texture& portrait) const
+{
+    sf::Sprite sprite(portrait);
+    const sf::Vector2u sz = portrait.getSize();
+    const float scale =
+        k_char_portrait_display /
+        static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
+    sprite.setScale(scale, scale);
+    sprite.setOrigin(static_cast<float>(sz.x) * 0.5f, static_cast<float>(sz.y) * 0.5f);
+    sprite.setPosition(k_char_portrait_x, k_char_portrait_y);
+    window.draw(sprite);
+}
+
+void UISystem::draw_character_stat_pips(sf::RenderWindow& window,
+                                        const CharacterStatDisplay& stats) const
+{
+    auto draw_row = [&](float row_y, int count) {
+        for (int i = 0; i < count; ++i) {
+            sf::RectangleShape pip(sf::Vector2f(4.f, 14.f));
+            pip.setFillColor(sf::Color(25, 20, 18));
+            pip.setOutlineThickness(1.f);
+            pip.setOutlineColor(sf::Color(10, 8, 6));
+            pip.setPosition(k_char_stat_col_x, row_y + static_cast<float>(i) * 16.f);
+            window.draw(pip);
+        }
+    };
+
+    draw_row(k_char_stat_health_y, stats.health_pips);
+    draw_row(k_char_stat_speed_y, stats.speed_pips);
+    draw_row(k_char_stat_damage_y, stats.damage_pips);
+}
+
 // ==================== 等待 / 选角 ====================
 void UISystem::draw_waiting_screen(sf::RenderWindow& window) {
+    if (!flow_tex_loaded_) {
+        load_flow_textures();
+    }
+
     if (flow_tex_loaded_) {
-        draw_sprite_fit(window, tex_waiting_, sf::FloatRect(0.f, 0.f, 800.f, 900.f), true);
+        draw_flow_fullscreen(window, tex_waiting_);
     } else {
         window.clear(sf::Color(25, 15, 35));
+        if (font_loaded_) {
+            sf::Text hint(L"缺少 gfx/ui/等待界面.png", font_, 20);
+            hint.setFillColor(sf::Color::White);
+            center_text_origin(hint);
+            hint.setPosition(k_screen_center_x, k_screen_h * 0.5f);
+            window.draw(hint);
+        }
     }
-
-    if (!font_loaded_) {
-        return;
-    }
-
-    sf::Text hint(L"按 Enter 进入角色选择", font_, 24);
-    hint.setFillColor(sf::Color(255, 240, 200));
-    center_text_origin(hint);
-    hint.setPosition(k_screen_center_x, 820.f);
-    window.draw(hint);
 }
 
 void UISystem::draw_character_select(sf::RenderWindow& window) {
+    if (!flow_tex_loaded_) {
+        load_flow_textures();
+    }
+
     if (flow_tex_loaded_) {
-        draw_sprite_fit(window, tex_char_select_, sf::FloatRect(0.f, 0.f, 800.f, 900.f), true);
+        draw_flow_fullscreen(window, tex_char_select_);
     } else {
         window.clear(sf::Color(30, 20, 40));
     }
 
-    if (!font_loaded_) {
-        return;
+    CharacterRoster& roster = CharacterRoster::instance();
+    const GameCharacter& ch = roster.selected();
+    load_character_portrait(ch.id(), ch.select_portrait_path());
+
+    const auto portrait_it = portrait_by_character_.find(static_cast<int>(ch.id()));
+    if (portrait_it != portrait_by_character_.end()) {
+        draw_character_portrait(window, portrait_it->second);
     }
 
-    sf::Text title(L"选择角色", font_, 32);
-    title.setFillColor(sf::Color(255, 230, 180));
-    center_text_origin(title);
-    title.setPosition(k_screen_center_x, 40.f);
-    window.draw(title);
-
-    sf::Text isaac(L"Isaac（默认）", font_, 22);
-    isaac.setFillColor(sf::Color::White);
-    center_text_origin(isaac);
-    isaac.setPosition(k_screen_center_x, 760.f);
-    window.draw(isaac);
-
-    sf::Text hint(L"点击屏幕中央 或 按 Enter 确认", font_, 18);
-    hint.setFillColor(sf::Color(200, 200, 200));
-    center_text_origin(hint);
-    hint.setPosition(k_screen_center_x, 820.f);
-    window.draw(hint);
+    draw_character_stat_pips(window, ch.stat_display());
 }
 
 int UISystem::update_character_select(sf::RenderWindow& window) {
-    const sf::Vector2f center(k_screen_center_x, k_screen_h * 0.5f);
-    const sf::Vector2i mp = sf::Mouse::getPosition(window);
-    const float dx = static_cast<float>(mp.x) - center.x;
-    const float dy = static_cast<float>(mp.y) - center.y;
-    const bool in_zone = (dx * dx + dy * dy) < 120.f * 120.f;
+    CharacterRoster& roster = CharacterRoster::instance();
 
-    if (sf::Mouse::isButtonPressed(sf::Mouse::Left) && in_zone) {
-        return static_cast<int>(CharacterId::Isaac);
+    if (char_select_block_confirm_until_key_up_) {
+        const bool enter_held =
+            sf::Keyboard::isKeyPressed(sf::Keyboard::Enter) ||
+            sf::Keyboard::isKeyPressed(sf::Keyboard::Return);
+        if (!enter_held) {
+            char_select_block_confirm_until_key_up_ = false;
+        }
+    }
+
+    if (key_just_pressed(sf::Keyboard::Left)) {
+        roster.cycle(-1);
+        const GameCharacter& ch = roster.selected();
+        load_character_portrait(ch.id(), ch.select_portrait_path());
+    }
+    if (key_just_pressed(sf::Keyboard::Right)) {
+        roster.cycle(1);
+        const GameCharacter& ch = roster.selected();
+        load_character_portrait(ch.id(), ch.select_portrait_path());
+    }
+
+    const bool confirm_key =
+        !char_select_block_confirm_until_key_up_ &&
+        (key_just_pressed(sf::Keyboard::Enter) ||
+         key_just_pressed(sf::Keyboard::Return));
+
+    const sf::Vector2i mp = sf::Mouse::getPosition(window);
+    const sf::FloatRect paper_sheet(210.f, 110.f, 380.f, 540.f);
+    static bool prev_mouse_left = false;
+    const bool mouse_left = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+    const bool confirm_click =
+        mouse_left && !prev_mouse_left &&
+        paper_sheet.contains(static_cast<float>(mp.x), static_cast<float>(mp.y));
+    prev_mouse_left = mouse_left;
+
+    if (confirm_key || confirm_click) {
+        return static_cast<int>(roster.selected_id());
     }
     return -1;
 }
@@ -441,58 +842,124 @@ void UISystem::draw_isaac_player(sf::RenderWindow& window,
                                  float y,
                                  float anim_time_sec)
 {
-    if (!isaac_tex_loaded_) {
-        sf::CircleShape fallback(14.f);
-        fallback.setOrigin(14.f, 14.f);
+    const float fallback_r = k_battle_player_sprite_px * 0.32f;
+
+    if (!battle_anim_loaded_) {
+        sf::CircleShape fallback(fallback_r);
+        fallback.setOrigin(fallback_r, fallback_r);
         fallback.setPosition(x, y);
         fallback.setFillColor(sf::Color(220, 200, 180));
         window.draw(fallback);
         return;
     }
 
-    const int frame = static_cast<int>(anim_time_sec * 10.f) % 6;
-    const sf::Texture& tex = isaac_frames_[frame];
+    const GameCharacter& ch = CharacterRoster::instance().selected();
+    const int frame_count = std::max(1, ch.battle_frame_count());
+    const int frame =
+        static_cast<int>(anim_time_sec * 10.f) % std::min(6, frame_count);
+    const sf::Texture& tex = battle_anim_frames_[frame];
     sf::Sprite sprite(tex);
     const sf::Vector2u sz = tex.getSize();
-    const float target = 48.f;
-    const float scale = target / static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
+    const float scale =
+        k_battle_player_sprite_px
+        / static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
     sprite.setScale(scale, scale);
     sprite.setOrigin(static_cast<float>(sz.x) * 0.5f, static_cast<float>(sz.y) * 0.5f);
     sprite.setPosition(x, y);
+    sprite.setColor(sf::Color::White);
     window.draw(sprite);
 }
 
 // ==================== 宝箱 ====================
 void UISystem::spawn_item_chest(float center_x) {
+    ensure_chest_textures_loaded();
     chest_.active = true;
     chest_.opened = false;
+    chest_.opening_reveal_timer = 0.f;
     chest_.x = center_x;
-    chest_.y = -72.f;
-    chest_.vy = 46.f;
+    chest_.y = -56.f;
+    chest_.vy = 28.f;
+    std::cout << "[Chest] spawn at (" << chest_.x << ", " << chest_.y
+              << ") closed_tex=" << (chest_closed_tex_ok_ ? "ok" : "fail")
+              << " open_tex=" << (chest_open_tex_ok_ ? "ok" : "fail") << "\n";
 }
 
-bool UISystem::update_item_chest(float dt,
-                                const sf::Vector2f& player_pos,
-                                float player_radius)
+bool UISystem::test_chest_player_overlap(const sf::Vector2f& player_pos) const {
+    // 与 main.cpp 机体碰撞盒一致，并略放大便于接住下落宝箱
+    const sf::FloatRect player_rect(
+        player_pos.x - 22.f,
+        player_pos.y - 26.f,
+        44.f,
+        52.f);
+
+    sf::FloatRect chest_rect = item_chest_bounds();
+    constexpr float k_pad = 18.f;
+    chest_rect.left -= k_pad;
+    chest_rect.top -= k_pad;
+    chest_rect.width += k_pad * 2.f;
+    chest_rect.height += k_pad * 2.f;
+
+    return rects_overlap(player_rect, chest_rect);
+}
+
+ChestUpdateResult UISystem::update_item_chest(float dt,
+                                              const sf::Vector2f& player_pos,
+                                              float player_radius)
 {
-    if (!chest_.active || chest_.opened) {
-        return false;
+    (void)player_radius;
+
+    if (!chest_.active) {
+        return ChestUpdateResult::None;
+    }
+
+    if (chest_.opened) {
+        if (chest_.opening_reveal_timer > 0.f) {
+            chest_.opening_reveal_timer -= dt;
+            if (chest_.opening_reveal_timer < 0.f) {
+                chest_.opening_reveal_timer = 0.f;
+            }
+            return ChestUpdateResult::None;
+        }
+        return ChestUpdateResult::ReadyForItemPick;
+    }
+
+    auto try_start_open_reveal = [&]() -> bool {
+        if (!test_chest_player_overlap(player_pos)) {
+            return false;
+        }
+        chest_.opened = true;
+        chest_.vy = 0.f;
+        chest_.opening_reveal_timer = k_chest_open_reveal_duration;
+        std::cout << "[Chest] collision -> opening reveal "
+                  << k_chest_open_reveal_duration << "s, open_tex="
+                  << (chest_open_tex_ok_ ? "loaded" : "MISSING") << "\n";
+        return true;
+    };
+
+    if (try_start_open_reveal()) {
+        return ChestUpdateResult::None;
     }
 
     chest_.y += chest_.vy * dt;
-    if (chest_.y > k_screen_h + 40.f) {
-        chest_.active = false;
-        return false;
+
+    if (try_start_open_reveal()) {
+        return ChestUpdateResult::None;
     }
 
-    const float dx = player_pos.x - chest_.x;
-    const float dy = player_pos.y - chest_.y;
-    const float touch_r = player_radius + std::max(chest_.half_w, chest_.half_h);
-    if (dx * dx + dy * dy <= touch_r * touch_r) {
-        chest_.opened = true;
-        return true;
+    if (chest_.y > k_screen_h + 80.f) {
+        chest_.active = false;
+        chest_.vy = 0.f;
+        std::cout << "[Chest] missed (fell off screen), y=" << chest_.y << "\n";
     }
-    return false;
+    return ChestUpdateResult::None;
+}
+
+bool UISystem::is_chest_opening_reveal() const {
+    return chest_.active && chest_.opened && chest_.opening_reveal_timer > 0.f;
+}
+
+bool UISystem::is_chest_opened() const {
+    return chest_.active && chest_.opened;
 }
 
 void UISystem::draw_item_chest(sf::RenderWindow& window) {
@@ -500,25 +967,25 @@ void UISystem::draw_item_chest(sf::RenderWindow& window) {
         return;
     }
 
-    if (chest_tex_loaded_) {
-        const sf::Texture& tex = chest_.opened ? tex_chest_open_ : tex_chest_closed_;
-        sf::Sprite sprite(tex);
-        const sf::Vector2u sz = tex.getSize();
-        const float scale = 48.f / static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
-        sprite.setScale(scale, scale);
-        sprite.setOrigin(static_cast<float>(sz.x) * 0.5f, static_cast<float>(sz.y) * 0.5f);
-        sprite.setPosition(chest_.x, chest_.y);
-        window.draw(sprite);
+    ensure_chest_textures_loaded();
+    const sf::Texture* tex_ptr = chest_texture_for_draw();
+    if (!tex_ptr) {
         return;
     }
 
-    sf::RectangleShape box(sf::Vector2f(chest_.half_w * 2.f, chest_.half_h * 2.f));
-    box.setOrigin(chest_.half_w, chest_.half_h);
-    box.setPosition(chest_.x, chest_.y);
-    box.setFillColor(chest_.opened ? sf::Color(200, 160, 60) : sf::Color(160, 120, 40));
-    box.setOutlineThickness(3.f);
-    box.setOutlineColor(sf::Color(40, 30, 20));
-    window.draw(box);
+    sf::Sprite sprite(*tex_ptr);
+    const sf::Vector2u sz = tex_ptr->getSize();
+    float display_px = 56.f;
+    if (is_chest_opening_reveal()) {
+        const float t = 1.f - chest_.opening_reveal_timer / k_chest_open_reveal_duration;
+        display_px = 56.f + 10.f * std::sin(t * 3.14159265f);
+    }
+    const float scale =
+        display_px / static_cast<float>(std::max(1u, std::max(sz.x, sz.y)));
+    sprite.setScale(scale, scale);
+    sprite.setOrigin(static_cast<float>(sz.x) * 0.5f, static_cast<float>(sz.y) * 0.5f);
+    sprite.setPosition(chest_.x, chest_.y);
+    window.draw(sprite);
 }
 
 bool UISystem::has_active_chest() const {
@@ -538,8 +1005,18 @@ void UISystem::begin_item_pick(const std::vector<int>& registry_indices,
                                const Player& player)
 {
     pick_options_.clear();
-    pick_options_.reserve(registry_indices.size());
-    for (int idx : registry_indices) {
+
+    std::vector<int> indices = registry_indices;
+    if (indices.empty()) {
+        const int count = ItemRegistry::itemCount();
+        for (int i = 0; i < 3 && i < count; ++i) {
+            indices.push_back(i);
+        }
+        std::cout << "[Chest] begin_item_pick: pending options empty, using fallback\n";
+    }
+
+    pick_options_.reserve(indices.size());
+    for (int idx : indices) {
         ItemPickOption opt;
         opt.registry_index = idx;
         opt.item_level = item_display_level(idx, player);
@@ -552,8 +1029,87 @@ bool UISystem::is_item_pick_active() const {
     return !pick_options_.empty();
 }
 
+namespace {
+
+constexpr float k_pick_card_w     = 210.f;
+constexpr float k_pick_card_h     = 300.f;
+constexpr float k_pick_spacing    = 48.f;
+constexpr float k_pick_start_y    = 170.f;
+constexpr float k_badge_w         = 12.f;
+constexpr float k_badge_h         = 16.f;
+
+float item_pick_row_start_x(const sf::RenderWindow& window, size_t option_count) {
+    const float count = static_cast<float>(std::max<size_t>(1, option_count));
+    const float total_w = count * k_pick_card_w + (count - 1.f) * k_pick_spacing;
+    return (static_cast<float>(window.getSize().x) - total_w) * 0.5f;
+}
+
+sf::FloatRect item_pick_card_rect(const sf::RenderWindow& window,
+                                  size_t index,
+                                  size_t option_count)
+{
+    const float start_x = item_pick_row_start_x(window, option_count);
+    const float card_x = start_x + static_cast<float>(index) * (k_pick_card_w + k_pick_spacing);
+    return sf::FloatRect(card_x, k_pick_start_y, k_pick_card_w, k_pick_card_h);
+}
+
+} // namespace
+
+void UISystem::draw_item_pick_option(sf::RenderWindow& window,
+                                     const sf::FloatRect& card_rect,
+                                     const ItemPickOption& opt) const
+{
+    const ItemDisplay item = ItemRegistry::getDisplay(opt.registry_index);
+    draw_parchment_card(window, card_rect, item.color);
+
+    const auto tex_it = item_icon_by_registry_.find(opt.registry_index);
+    if (tex_it != item_icon_by_registry_.end()) {
+        draw_sprite_fit(
+            window,
+            tex_it->second,
+            sf::FloatRect(
+                card_rect.left + 24.f,
+                card_rect.top + 28.f,
+                card_rect.width - 48.f,
+                130.f),
+            true);
+    }
+
+    if (!font_loaded_) {
+        return;
+    }
+
+    const float name_row_y = card_rect.top + 168.f;
+    const float row_center_x = card_rect.left + card_rect.width * 0.5f;
+
+    sf::Text name_text(item.name, font_, 20);
+    name_text.setFillColor(sf::Color(40, 30, 20));
+    name_text.setStyle(sf::Text::Bold);
+    const sf::FloatRect name_bounds = name_text.getLocalBounds();
+    const float name_w = name_bounds.width;
+    const float badge_x = row_center_x - (k_badge_w + 6.f + name_w) * 0.5f;
+
+    draw_level_badge(window, badge_x, name_row_y, opt.item_level);
+
+    name_text.setOrigin(0.f, 0.f);
+    name_text.setPosition(badge_x + k_badge_w + 8.f, name_row_y + 2.f);
+    window.draw(name_text);
+
+    sf::Text desc_text(item.description, font_, 14);
+    desc_text.setFillColor(sf::Color(60, 50, 40));
+    center_text_origin(desc_text);
+    desc_text.setPosition(row_center_x, card_rect.top + 210.f);
+    window.draw(desc_text);
+
+    sf::Text hint(L"[点击选择]", font_, 14);
+    hint.setFillColor(sf::Color(100, 80, 60));
+    center_text_origin(hint);
+    hint.setPosition(row_center_x, card_rect.top + card_rect.height - 32.f);
+    window.draw(hint);
+}
+
 int UISystem::update_item_pick(sf::RenderWindow& window) {
-    if (pick_options_.empty() || !font_loaded_) {
+    if (pick_options_.empty()) {
         return -1;
     }
 
@@ -562,21 +1118,16 @@ int UISystem::update_item_pick(sf::RenderWindow& window) {
         return -1;
     }
 
-    constexpr float card_w = 200.f;
-    constexpr float card_h = 280.f;
-    constexpr float spacing = 60.f;
-    const float total_w = 3.f * card_w + 2.f * spacing;
-    const float start_x = (static_cast<float>(window.getSize().x) - total_w) * 0.5f;
-    const float start_y = 180.f;
-
     for (size_t i = 0; i < pick_options_.size(); ++i) {
-        const float card_x = start_x + static_cast<float>(i) * (card_w + spacing);
-        const sf::FloatRect rect(card_x, start_y, card_w, card_h);
+        const sf::FloatRect rect =
+            item_pick_card_rect(window, i, pick_options_.size());
         if (rect.contains(static_cast<float>(mouse_pos.x),
                           static_cast<float>(mouse_pos.y))) {
             const int picked = pick_options_[i].registry_index;
             pick_options_.clear();
             chest_.active = false;
+            chest_.opened = false;
+            chest_.vy = 0.f;
             return picked;
         }
     }
@@ -589,62 +1140,24 @@ void UISystem::draw_item_pick(sf::RenderWindow& window) {
     }
 
     sf::RectangleShape overlay(sf::Vector2f(window.getSize()));
-    overlay.setFillColor(sf::Color(0, 0, 0, 190));
+    overlay.setFillColor(sf::Color(0, 0, 0, 200));
     window.draw(overlay);
 
     if (font_loaded_) {
         sf::Text title(L"选择一件道具", font_, 34);
         title.setFillColor(sf::Color(255, 240, 200));
+        title.setOutlineColor(sf::Color(40, 25, 15));
+        title.setOutlineThickness(2.f);
         center_text_origin(title);
-        title.setPosition(k_screen_center_x, 70.f);
+        title.setPosition(
+            static_cast<float>(window.getSize().x) * 0.5f, 72.f);
         window.draw(title);
     }
 
-    constexpr float card_w = 200.f;
-    constexpr float card_h = 280.f;
-    constexpr float spacing = 60.f;
-    const float total_w = 3.f * card_w + 2.f * spacing;
-    const float start_x = (static_cast<float>(window.getSize().x) - total_w) * 0.5f;
-    const float start_y = 180.f;
-
     for (size_t i = 0; i < pick_options_.size(); ++i) {
-        const ItemPickOption& opt = pick_options_[i];
-        const ItemDisplay item = ItemRegistry::getDisplay(opt.registry_index);
-        const float card_x = start_x + static_cast<float>(i) * (card_w + spacing);
-        const sf::FloatRect card_rect(card_x, start_y, card_w, card_h);
-
-        draw_parchment_card(window, card_rect, item.color);
-
-        const auto tex_it = item_icon_by_registry_.find(opt.registry_index);
-        if (tex_it != item_icon_by_registry_.end()) {
-            draw_sprite_fit(
-                window,
-                tex_it->second,
-                sf::FloatRect(card_x + 40.f, start_y + 36.f, 120.f, 120.f),
-                true);
-        }
-
-        if (font_loaded_) {
-            draw_level_badge(window, card_x + 14.f, start_y + 118.f, opt.item_level);
-
-            sf::Text name_text(item.name, font_, 20);
-            name_text.setFillColor(sf::Color(40, 30, 20));
-            center_text_origin(name_text);
-            name_text.setPosition(card_x + card_w * 0.5f, start_y + 168.f);
-            window.draw(name_text);
-
-            sf::Text desc_text(item.description, font_, 15);
-            desc_text.setFillColor(sf::Color(60, 50, 40));
-            center_text_origin(desc_text);
-            desc_text.setPosition(card_x + card_w * 0.5f, start_y + 200.f);
-            window.draw(desc_text);
-
-            sf::Text hint(L"[点击选择]", font_, 14);
-            hint.setFillColor(sf::Color(100, 80, 60));
-            center_text_origin(hint);
-            hint.setPosition(card_x + card_w * 0.5f, start_y + card_h - 36.f);
-            window.draw(hint);
-        }
+        const sf::FloatRect card_rect =
+            item_pick_card_rect(window, i, pick_options_.size());
+        draw_item_pick_option(window, card_rect, pick_options_[i]);
     }
 }
 

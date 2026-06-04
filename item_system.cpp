@@ -1,6 +1,7 @@
 #include "item_system.h"
 #include "player_stats.h"
 #include "parasite_bullet.h"
+#include "module3_tears.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +12,17 @@ bool bullet_participates_in_combat(const Bullet& b) {
     return !b.is_haemolacria_orb && !b.is_dead;
 }
 
-int compute_bullet_damage(const Bullet& bullet, int player_damage_fallback) {
+int compute_bullet_damage(
+    const Bullet& bullet,
+    int           player_damage_fallback,
+    float         hit_cx = 0.f,
+    float         hit_cy = 0.f,
+    bool          use_hit_position = false)
+{
+    if (use_hit_position) {
+        return module3::compute_tear_damage(
+            bullet, player_damage_fallback, hit_cx, hit_cy);
+    }
     float hit_damage = bullet.damage;
     if (hit_damage <= 0.f) {
         hit_damage = static_cast<float>(player_damage_fallback);
@@ -26,17 +37,26 @@ bool resolve_one_hit(
     const ProjectileHitCallbacks& callbacks,
     EnemyDamageable* enemy_view,
     BaseBoss* boss_view,
-    std::vector<Bullet>& pending_bullets)
+    std::vector<Bullet>& pending_bullets,
+    const Player*     player_for_splits = nullptr)
 {
     if (!projectile.isAlive() || !target.isAlive()) {
         return false;
     }
-    if (!hitbox_intersects(projectile.getHitbox(), target.getHitbox())) {
+    if (!projectile.test_hit(target.getHitbox())) {
         return false;
     }
 
-    const int dmg = projectile.getDamage();
-    const bool killed = target.takeDamage(dmg);
+    int dmg = projectile.getDamage();
+    if (bullet_ptr != nullptr) {
+        const Hitbox hb = target.getHitbox();
+        const float hit_cx = hb.x + hb.w * 0.5f;
+        const float hit_cy = hb.y + hb.h * 0.5f;
+        dmg = module3::compute_tear_damage(
+            *bullet_ptr, dmg, hit_cx, hit_cy);
+        bullet_ptr->damage = static_cast<float>(dmg);
+    }
+    const bool killed = projectile.on_contact(target);
 
     if (enemy_view != nullptr) {
         if (callbacks.on_enemy_hit) {
@@ -50,6 +70,11 @@ bool resolve_one_hit(
             if (can_parasite_split(*bullet_ptr)) {
                 enqueue_parasite_hit_splits(*bullet_ptr, pending_bullets);
             }
+            if (player_for_splits != nullptr
+                && module3::can_apple_razor_split(*bullet_ptr)) {
+                module3::enqueue_apple_razor_splits(
+                    *bullet_ptr, *player_for_splits, pending_bullets);
+            }
         }
     } else if (boss_view != nullptr) {
         if (callbacks.on_boss_hit) {
@@ -62,30 +87,7 @@ bool resolve_one_hit(
 
 } // namespace
 
-// ---------- EnemyDamageable ----------
-
-EnemyDamageable::EnemyDamageable(Enemy& enemy)
-    : enemy_(enemy) {}
-
-Hitbox EnemyDamageable::getHitbox() const {
-    return Hitbox{
-        enemy_.x - 15.f,
-        enemy_.y - 15.f,
-        30.f,
-        30.f};
-}
-
-bool EnemyDamageable::isAlive() const {
-    return enemy_.hp > 0;
-}
-
-bool EnemyDamageable::takeDamage(int damage) {
-    if (enemy_.hp <= 0) {
-        return true;
-    }
-    enemy_.hp -= damage;
-    return enemy_.hp <= 0;
-}
+// EnemyDamageable 实现见 item_system.h（内联）
 
 // ---------- BulletProjectile ----------
 
@@ -113,25 +115,7 @@ void BulletProjectile::update(float dt) {
     (void)dt;
 }
 
-// ---------- SpikeProjectile ----------
-
-SpikeProjectile::SpikeProjectile(
-    float x, float y, float vx, float vy, int damage, float life)
-    : x_(x), y_(y), vx_(vx), vy_(vy), damage_(damage), life_(life), max_life_(life) {}
-
-Hitbox SpikeProjectile::getHitbox() const {
-    return Hitbox{x_ - radius_, y_ - radius_, radius_ * 2.f, radius_ * 2.f};
-}
-
-int SpikeProjectile::getDamage() const { return damage_; }
-
-bool SpikeProjectile::isAlive() const { return life_ > 0.f; }
-
-void SpikeProjectile::update(float dt) {
-    x_ += vx_ * dt;
-    y_ += vy_ * dt;
-    life_ -= dt;
-}
+// SpikeProjectile 实现见 item_system.h（内联）
 
 // ---------- AppleProjectile ----------
 
@@ -171,6 +155,8 @@ void GlassShardProjectile::update(float dt) {
     y_ += vy_ * dt;
     life_ -= dt;
 }
+
+// 模块二投射物（OrbitingTear / LaserRing / EpicCrosshair / IceCubeBaby）实现见 item_system.h
 
 // ---------- ItemManager ----------
 
@@ -243,7 +229,8 @@ void ItemManager::resolve_projectile_hits(
                     callbacks,
                     &enemy_views[ei],
                     nullptr,
-                    pending_bullets)) {
+                    pending_bullets,
+                    &player)) {
                 bullet_consumed = true;
                 break;
             }
@@ -266,7 +253,8 @@ void ItemManager::resolve_projectile_hits(
                         callbacks,
                         nullptr,
                         boss,
-                        pending_bullets)) {
+                        pending_bullets,
+                        &player)) {
                     bullet_consumed = true;
                     break;
                 }
@@ -290,6 +278,41 @@ void ItemManager::resolve_projectile_hits(
 
         bool projectile_consumed = false;
 
+        if (projectile.is_aoe_burst()) {
+            for (size_t ei = 0; ei < enemy_views.size(); ++ei) {
+                if (!enemy_views[ei].isAlive()) {
+                    continue;
+                }
+                resolve_one_hit(
+                    projectile,
+                    nullptr,
+                    enemy_views[ei],
+                    callbacks,
+                    &enemy_views[ei],
+                    nullptr,
+                    pending_bullets);
+            }
+            for (IDamageable* boss_target : boss_targets) {
+                if (boss_target == nullptr || !boss_target->isAlive()) {
+                    continue;
+                }
+                auto* boss = dynamic_cast<BaseBoss*>(boss_target);
+                if (boss == nullptr) {
+                    continue;
+                }
+                resolve_one_hit(
+                    projectile,
+                    nullptr,
+                    *boss_target,
+                    callbacks,
+                    nullptr,
+                    boss,
+                    pending_bullets);
+            }
+            passives_.erase(passives_.begin() + static_cast<std::ptrdiff_t>(pi));
+            continue;
+        }
+
         for (size_t ei = 0; ei < enemy_views.size(); ++ei) {
             if (!enemy_views[ei].isAlive()) {
                 continue;
@@ -303,7 +326,9 @@ void ItemManager::resolve_projectile_hits(
                     nullptr,
                     pending_bullets)) {
                 projectile_consumed = projectile.consumes_on_hit();
-                break;
+                if (projectile_consumed) {
+                    break;
+                }
             }
         }
 
@@ -325,7 +350,9 @@ void ItemManager::resolve_projectile_hits(
                         boss,
                         pending_bullets)) {
                     projectile_consumed = projectile.consumes_on_hit();
-                    break;
+                    if (projectile_consumed) {
+                        break;
+                    }
                 }
             }
         }
@@ -338,11 +365,4 @@ void ItemManager::resolve_projectile_hits(
     }
 
     boss_system.remove_dead_bosses();
-
-    enemies.erase(
-        std::remove_if(
-            enemies.begin(),
-            enemies.end(),
-            [](const Enemy& enemy) { return enemy.hp <= 0; }),
-        enemies.end());
 }

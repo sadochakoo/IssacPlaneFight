@@ -16,6 +16,11 @@ namespace ItemIds {
     inline const char* TWENTY_TWENTY = "20/20";
     inline const char* PARASITE     = "parasite";
     inline const char* HAEMOLACRIA  = "haemolacria";
+    inline const char* SPIKE_NAIL   = "spike_nail";
+    inline const char* BETRAYAL     = "betrayal";
+    inline const char* APPLE_RAZOR  = "apple";
+    inline const char* GODHEAD      = "godhead";
+    inline const char* GLASS_SHARD  = "glass_shard";
 }
 
 // ==================== UI 展示元数据 ====================

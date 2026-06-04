@@ -47,7 +47,16 @@
 #include <ctime>                   // time
 #include <string>
 #include <memory>
-#include <algorithm>
+#include <iostream>
+#include <fstream>
+#include <chrono>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include "player_stats.h"
 #include "passive_item.h"
@@ -61,8 +70,12 @@
 #include "split_laser.h"
 #include "haemolacria.h"
 #include "ui_system.h"
+#include "game_character.h"
 #include "boss_system.h"
 #include "item_system.h"
+#include "module3_tears.h"
+
+constexpr float k_screen_center_x = 400.f;
 
 // ==================== 游戏状态枚举 ====================
 /*
@@ -70,22 +83,19 @@
  *
  * 状态转换：
  *   MENU → (Enter) → CHARACTER_SELECT
- *   CHARACTER_SELECT → (确认 Isaac) → PLAYING
- *   PLAYING → (分数达标) → 生成宝箱下落
- *   PLAYING → (碰到宝箱) → LEVEL_UP
+ *   CHARACTER_SELECT → (确认角色) → PLAYING
+ *   PLAYING → (分数达标) → 宝箱 → LEVEL_UP
  *   LEVEL_UP → (选择道具) → PLAYING
  *   PLAYING → (玩家死亡) → GAME_OVER
  *   GAME_OVER → (Enter) → MENU
  */
 enum class GameState {
-    MENU,              // 等待界面
-    CHARACTER_SELECT,  // 角色选择
-    PLAYING,           // 游戏进行中
-    LEVEL_UP,          // 选道具（暂停）
-    GAME_OVER          // 游戏结束
+    MENU,
+    CHARACTER_SELECT,
+    PLAYING,
+    LEVEL_UP,
+    GAME_OVER
 };
-
-constexpr float k_screen_center_x = 400.f;
 
 // ==================== 全局随机数引擎 ====================
 /*
@@ -140,6 +150,74 @@ int g_frame_count = 0;
 
 BossSystem  g_boss_system;
 ItemManager g_item_manager;
+PlayerStatsItemFields       g_player_item_fields;
+item_combat::PassiveSpawnTimers g_passive_timers;
+float g_screen_shake = 0.f;
+std::vector<module3::DamagePopup> g_module3_damage_popups;
+
+struct DebugBanner {
+    std::wstring text;
+    int          frames_remaining = 0;
+} g_debug_banner;
+
+int g_debug_flash_frames = 0;
+
+#ifdef _WIN32
+void ensure_debug_console() {
+    static bool attached = false;
+    if (attached) {
+        return;
+    }
+    if (AllocConsole()) {
+        FILE* out = nullptr;
+        FILE* err = nullptr;
+        freopen_s(&out, "CONOUT$", "w", stdout);
+        freopen_s(&err, "CONOUT$", "w", stderr);
+        std::ios::sync_with_stdio(true);
+        SetConsoleTitleW(L"PlaneWar Debug");
+        attached = true;
+    }
+}
+#endif
+
+void append_debug_log(const char* msg) {
+#ifdef _WIN32
+    ensure_debug_console();
+#endif
+    std::cout << msg << std::endl;
+    std::ofstream log("debug.log", std::ios::app);
+    if (log) {
+        const auto t = std::chrono::system_clock::to_time_t(
+            std::chrono::system_clock::now());
+        log << std::ctime(&t) << msg << "\n";
+    }
+}
+
+void show_debug_banner(const std::wstring& text, int frames = 180) {
+    g_debug_banner.text             = text;
+    g_debug_banner.frames_remaining = frames;
+    g_debug_flash_frames            = std::max(g_debug_flash_frames, 90);
+}
+
+void draw_debug_flash_bar(sf::RenderWindow& window) {
+    if (g_debug_flash_frames <= 0) {
+        return;
+    }
+    const float pulse =
+        0.65f + 0.35f * std::sin(static_cast<float>(g_frame_count) * 0.25f);
+    sf::RectangleShape top(sf::Vector2f(800.f, 40.f));
+    top.setPosition(0.f, 0.f);
+    top.setFillColor(sf::Color(0, 180, 255,
+        static_cast<sf::Uint8>(200 * pulse)));
+    window.draw(top);
+}
+
+void draw_debug_overlay(sf::RenderWindow& window, UISystem& ui_system) {
+    draw_debug_flash_bar(window);
+    if (g_debug_banner.frames_remaining > 0 && !g_debug_banner.text.empty()) {
+        ui_system.draw_debug_toast(window, g_debug_banner.text);
+    }
+}
 
 // 游戏分数
 int game_score = 0;
@@ -187,7 +265,6 @@ float wave_pause_timer = 2.0f;    // 首波前准备 2 秒
 float wave_spawn_timer = 0.f;
 int   prev_player_level = 1;
 
-// 第二部分：升级宝箱 + 选道具
 std::vector<int> pending_level_up_options;
 bool             level_up_chest_armed = false;
 float            isaac_anim_time      = 0.f;
@@ -521,13 +598,19 @@ int find_nearest_enemy(float bx, float by) {
 
 // ==================== 重置游戏 ====================
 
+void cleanup_upgrade_flow(UISystem& ui) {
+    level_up_chest_armed = false;
+    pending_level_up_options.clear();
+    ui.reset_run_state();
+}
+
 /*
  * reset_game() - 重置所有游戏状态
  *
  * 清空所有列表，重置分数和计时器
  * 用于游戏结束后重新开始
  */
-Player* reset_game(Player& player) {
+Player* reset_game(Player& player, UISystem& ui) {
     // 重新构造 Player（重置所有属性）
     player = Player();
 
@@ -544,6 +627,11 @@ Player* reset_game(Player& player) {
     health_drops.clear();
     g_boss_system.clear();
     g_item_manager.clear();
+    g_module3_damage_popups.clear();
+    item_pickup_toast_queue().clear();
+    g_player_item_fields = PlayerStatsItemFields{};
+    g_passive_timers     = item_combat::PassiveSpawnTimers{};
+    g_screen_shake       = 0.f;
 
     // 重置全局变量
     game_score = 0;
@@ -561,8 +649,7 @@ Player* reset_game(Player& player) {
     init_layer_waves();
     prev_player_level = 1;
 
-    pending_level_up_options.clear();
-    level_up_chest_armed = false;
+    cleanup_upgrade_flow(ui);
     isaac_anim_time = 0.f;
 
     return &player;
@@ -570,10 +657,57 @@ Player* reset_game(Player& player) {
 
 // ==================== 绘制辅助函数 ====================
 
-/*
- * draw_player_status_fx() - Isaac 本体之上的护盾/隐形特效
- */
 void draw_player_status_fx(sf::RenderWindow& window, const Player& player) {
+    if (player.shield_timer != 0) {
+        sf::CircleShape shield_circle(22.f);
+        shield_circle.setOrigin(22.f, 22.f);
+        shield_circle.setPosition(player.pos);
+        shield_circle.setFillColor(sf::Color::Transparent);
+        shield_circle.setOutlineThickness(2.f);
+        shield_circle.setOutlineColor(sf::Color(255, 255, 100, 150));
+        window.draw(shield_circle);
+    }
+
+    if (player.invisible_timer > 0) {
+        sf::CircleShape invis(
+            20.f + std::sin(static_cast<float>(player.invisible_timer) * 0.2f) * 4.f);
+        invis.setOrigin(invis.getRadius(), invis.getRadius());
+        invis.setPosition(player.pos);
+        invis.setFillColor(sf::Color::Transparent);
+        invis.setOutlineThickness(1.f);
+        invis.setOutlineColor(sf::Color(100, 100, 255, 100));
+        window.draw(invis);
+    }
+}
+
+/*
+ * draw_player_shape() - 绘制玩家飞机（三角形）
+ *
+ * 以撒风格的玩家外观
+ */
+void draw_player_shape(sf::RenderWindow& window, const Player& player) {
+    // 主体（圆角三角形）
+    sf::ConvexShape body;
+    body.setPointCount(3);
+    body.setPoint(0, sf::Vector2f(0.f, -20.f));    // 顶部
+    body.setPoint(1, sf::Vector2f(-16.f, 16.f));    // 左下
+    body.setPoint(2, sf::Vector2f(16.f, 16.f));     // 右下
+
+    // 根据状态设置颜色
+    sf::Color body_color;
+    if (player.invisible_timer > 0) {
+        body_color = sf::Color(100, 100, 255, 128);
+    } else if (player.shield_timer != 0) {
+        body_color = sf::Color(255, 255, 150);
+    } else {
+        body_color = sf::Color(255, 255, 255);
+    }
+    body.setFillColor(body_color);
+    body.setOutlineThickness(2.f);
+    body.setOutlineColor(sf::Color(100, 100, 100));
+    body.setPosition(player.pos);
+    window.draw(body);
+
     // 护盾光环（有护盾时外圈发光）
     if (player.shield_timer != 0) {
         sf::CircleShape shield_circle(22.f);
@@ -640,17 +774,24 @@ void draw_clone_shape(sf::RenderWindow& window, const Player& player) {
  *   }
  */
 int main() {
+#ifdef _WIN32
+    ensure_debug_console();
+#endif
+
     // ===== 创建 SFML 窗口 =====
     // VideoMode(宽, 高) - 设置窗口大小 800x900
     // L"飞机大战 - 以撒版" - 窗口标题（宽字符）
     sf::RenderWindow window(
         sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT),
-        L"飞机大战 - 以撒版"
+        L"飞机大战 [B或I=冰弹测试]"
     );
     window.setFramerateLimit(60);  // 限制 60 FPS
 
     UISystem ui_system;
     ui_system.initialize();
+    append_debug_log("=== game start (look for debug.log next to exe) ===");
+    show_debug_banner(L"新版本已启动 | Enter开始 | B或I发射冰弹", 300);
+    g_debug_flash_frames = 180;
 
     // ===== 创建游戏对象 =====
     Player player;
@@ -678,28 +819,62 @@ int main() {
                 if (event.key.code == sf::Keyboard::Enter) {
                     if (game_state == GameState::MENU) {
                         game_state = GameState::CHARACTER_SELECT;
-                    } else if (game_state == GameState::CHARACTER_SELECT) {
-                        selected_character = CharacterId::Isaac;
-                        reset_game(player);
-                        game_state = GameState::PLAYING;
+                        ui_system.notify_enter_character_select_screen();
                     } else if (game_state == GameState::GAME_OVER) {
+                        cleanup_upgrade_flow(ui_system);
                         game_state = GameState::MENU;
                     }
                 }
 
-                // 调试：数字键 1/2/3 加载 test_items.json 用例（需 PLAYING）
+                const bool ice_test_key =
+                    event.key.code == sf::Keyboard::B
+                    || event.key.code == sf::Keyboard::I;
+                if (ice_test_key) {
+                    append_debug_log(
+                        game_state == GameState::PLAYING
+                            ? "[ice] key pressed in PLAYING"
+                            : "[ice] key pressed NOT in game");
+                    if (game_state != GameState::PLAYING) {
+                        show_debug_banner(
+                            L"请先 Enter 开始游戏，再点游戏窗口按 B 或 I");
+                    } else {
+                        const bool loaded =
+                            load_test_case(player, "test_16_ice_baby");
+                        if (!loaded) {
+                            item_combat::enable_ice_baby(player);
+                            append_debug_log("[ice] json fail, enabled manual");
+                        }
+                        item_combat::spawn_ice_cube_baby(
+                            player, g_item_manager);
+                        const std::size_t n =
+                            g_item_manager.passives().size();
+                        show_debug_banner(
+                            L"OK ice spawned! count="
+                            + std::to_wstring(n));
+                        append_debug_log("[ice] spawned passives");
+                        spawn_particles(
+                            player.pos.x, player.pos.y - 20.f,
+                            sf::Color(120, 230, 255), 16);
+                    }
+                }
+
+                // 调试：数字键加载 test_items.json / test_combat_status.json（需 PLAYING）
                 if (game_state == GameState::PLAYING) {
-                    if (event.key.code == sf::Keyboard::Num1 ||
-                        event.key.code == sf::Keyboard::Numpad1) {
+                    if (!event.key.shift
+                        && (event.key.code == sf::Keyboard::Num1
+                            || event.key.code == sf::Keyboard::Numpad1)) {
                         load_test_case(player, "test_01_pure_brimstone");
-                    } else if (event.key.code == sf::Keyboard::Num2 ||
-                               event.key.code == sf::Keyboard::Numpad2) {
+                    } else if (!event.key.shift
+                               && (event.key.code == sf::Keyboard::Num2
+                                   || event.key.code == sf::Keyboard::Numpad2)) {
                         load_test_case(player, "test_02_brimstone_spoon_2020");
-                    } else if (event.key.code == sf::Keyboard::Num3 ||
-                               event.key.code == sf::Keyboard::Numpad3) {
+                    } else if (!event.key.shift
+                               && (event.key.code == sf::Keyboard::Num3
+                                   || event.key.code == sf::Keyboard::Numpad3)) {
                         load_test_case(player, "test_03_army_of_babies");
-                    } else if (event.key.code == sf::Keyboard::Num4 ||
-                               event.key.code == sf::Keyboard::Numpad4) {
+                    } else if (!event.key.shift
+                               && (event.key.code == sf::Keyboard::Num4
+                                   || event.key.code == sf::Keyboard::Numpad4)) {
                         load_test_case(player, "test_04_parasite");
                     } else if (event.key.code == sf::Keyboard::Num5 ||
                                event.key.code == sf::Keyboard::Numpad5) {
@@ -707,24 +882,90 @@ int main() {
                     } else if (event.key.code == sf::Keyboard::Num6 ||
                                event.key.code == sf::Keyboard::Numpad6) {
                         load_test_case(player, "test_06_haemolacria");
+                    } else if (event.key.code == sf::Keyboard::Num7 ||
+                               event.key.code == sf::Keyboard::Numpad7) {
+                        load_test_case(player, "test_07_mirror_clone");
+                    } else if (event.key.code == sf::Keyboard::Num8 ||
+                               event.key.code == sf::Keyboard::Numpad8) {
+                        load_test_case(player, "test_08_item_panel_full");
+                    } else if (event.key.code == sf::Keyboard::Num9 ||
+                               event.key.code == sf::Keyboard::Numpad9) {
+                        load_test_case(player, "test_09_speed_debuff_ui");
+                    } else if (event.key.code == sf::Keyboard::Num0 ||
+                               event.key.code == sf::Keyboard::Numpad0) {
+                        load_test_case(player, "test_10_glass_apple");
+                    } else if (event.key.code == sf::Keyboard::F1) {
+                        load_test_case(player, "test_11_tiny_planet");
+                    } else if (event.key.code == sf::Keyboard::F2) {
+                        load_test_case(player, "test_12_combat_manual");
+                    } else if (event.key.code == sf::Keyboard::F3) {
+                        load_test_case(player, "test_13_apply_slow");
+                    } else if (event.key.code == sf::Keyboard::F4) {
+                        load_test_case(player, "test_14_module2_projectiles");
+                        item_combat::spawn_demo_module2_projectiles(
+                            player, g_item_manager);
+                    } else if (event.key.code == sf::Keyboard::F5
+                               && !enemies.empty()) {
+                        EnemyDamageable view(enemies.front());
+                        view.applyFreeze(300);
+                    } else if (event.key.code == sf::Keyboard::F6
+                               && !enemies.empty()) {
+                        item_combat::apply_betrayal_effect(enemies.front());
+                    } else if (event.key.code == sf::Keyboard::F8) {
+                        load_test_case(player, "test_17_betrayal");
+                    } else if (event.key.code == sf::Keyboard::F7
+                               && !enemies.empty()) {
+                        EnemyDamageable view(enemies.front());
+                        view.applyKnockbackRadial(
+                            combat_fx::make_spike_nail_knockback(
+                                player.pos.x, player.pos.y));
+                    } else if (event.key.code == sf::Keyboard::F11) {
+                        load_test_case(player, "test_15_spike_nail");
+                        item_combat::spawn_spike_nail_burst(
+                            player, g_item_manager, player.get_damage());
+                    } else if (event.key.code == sf::Keyboard::F9) {
+                        load_test_case(player, "test_18_module3_tears");
+                    } else if (event.key.shift
+                               && event.key.code == sf::Keyboard::Num1) {
+                        module3::enable_single_item_test(player, "apple");
+                    } else if (event.key.shift
+                               && event.key.code == sf::Keyboard::Num2) {
+                        module3::enable_single_item_test(player, "betrayal");
+                    } else if (event.key.shift
+                               && event.key.code == sf::Keyboard::Num3) {
+                        module3::enable_single_item_test(player, "godhead");
+                    } else if (event.key.shift
+                               && event.key.code == sf::Keyboard::Num4) {
+                        module3::enable_single_item_test(
+                            player, "glass_shard");
                     }
                 }
             }
         }
+
+        if (g_debug_banner.frames_remaining > 0) {
+            --g_debug_banner.frames_remaining;
+        }
+        if (g_debug_flash_frames > 0) {
+            --g_debug_flash_frames;
+        }
+        module3::tick_betray_popup();
 
         // ========== 获取输入 ==========
         float dt = FRAME_TIME;  // 每帧时间
 
         // ========== 游戏逻辑 ==========
         switch (game_state) {
+            // ==== 菜单状态 ====
             case GameState::MENU:
                 break;
 
             case GameState::CHARACTER_SELECT: {
                 const int picked = ui_system.update_character_select(window);
-                if (picked == static_cast<int>(CharacterId::Isaac)) {
-                    selected_character = CharacterId::Isaac;
-                    reset_game(player);
+                if (picked >= 0 &&
+                    picked < static_cast<int>(CharacterId::Count)) {
+                    selected_character = static_cast<CharacterId>(picked);
+                    reset_game(player, ui_system);
                     game_state = GameState::PLAYING;
                 }
                 break;
@@ -733,6 +974,10 @@ int main() {
             case GameState::PLAYING: {
                 ++g_frame_count;
                 isaac_anim_time += dt;
+                item_combat::remove_dead_enemies(enemies);
+
+                item_combat::apply_player_move_speed(
+                    player, g_player_item_fields);
 
                 // --- 玩家移动 ---
                 // WASD 或方向键控制移动
@@ -765,6 +1010,17 @@ int main() {
                 if (player.pos.y < 20.f)  player.pos.y = 20.f;
                 if (player.pos.y > 880.f) player.pos.y = 880.f;
 
+                if (level_up_chest_armed) {
+                    if (!ui_system.has_active_chest()) {
+                        ui_system.spawn_item_chest(k_screen_center_x);
+                    }
+                    if (ui_system.update_item_chest(dt, player.pos, 18.f) ==
+                        ChestUpdateResult::ReadyForItemPick) {
+                        ui_system.begin_item_pick(pending_level_up_options, player);
+                        game_state = GameState::LEVEL_UP;
+                    }
+                }
+
                 BabySystem::updateOrbit(player, dt);
 
                 const AttackProfile attack_profile = buildAttackProfile(player);
@@ -789,6 +1045,16 @@ int main() {
                     player, bullets, split_lasers, enemies,
                     static_cast<float>(player.stats.shot_speed), dt);
 
+                module3::update_player_bullets(
+                    player,
+                    bullets,
+                    enemies,
+                    dt,
+                    g_frame_count,
+                    g_module3_damage_popups);
+                module3::tick_damage_popups(g_module3_damage_popups, dt);
+                item_ui::tick_pickup_toasts(item_pickup_toast_queue());
+
                 // --- 敌人子弹 ---
                 for (size_t i = 0; i < enemy_bullets.size(); ) {
                     enemy_bullets[i].x += enemy_bullets[i].vx * dt;
@@ -804,18 +1070,36 @@ int main() {
                     }
                 }
 
+                item_combat::tick_enemies_combat(enemies);
+
                 // --- 更新敌人 ---
                 for (size_t i = 0; i < enemies.size(); ) {
+                    if (enemies[i].hp <= 0) {
+                        ++i;
+                        continue;
+                    }
+
                     if (enemies[i].parasite_split_cooldown > 0) {
                         --enemies[i].parasite_split_cooldown;
                     }
 
-                    // === 追踪型敌人：向玩家加速移动 ===
-                    if (enemies[i].enemy_type == ENEMY_TRACKING ||
+                    const bool enemy_can_move =
+                        enemies[i].combat_freeze_frames <= 0
+                        && enemies[i].combat_knockback_stun <= 0;
+
+                    // === 追踪型敌人：向玩家或最近敌机移动 ===
+                    if (enemy_can_move
+                        && (enemies[i].enemy_type == ENEMY_TRACKING ||
                         enemies[i].enemy_type == ENEMY_ELITE ||
-                        enemies[i].enemy_type == ENEMY_SPIRAL_ELITE) {
-                        float dx = player.pos.x - enemies[i].x;
-                        float dy = player.pos.y - enemies[i].y;
+                        enemies[i].enemy_type == ENEMY_SPIRAL_ELITE)) {
+                        float target_x = player.pos.x;
+                        float target_y = player.pos.y;
+                        if (enemies[i].combat_betrayed) {
+                            item_combat::resolve_betrayed_enemy_aim(
+                                enemies, enemies[i], target_x, target_y);
+                        }
+                        float dx = target_x - enemies[i].x;
+                        float dy = target_y - enemies[i].y;
                         float dist = std::sqrt(dx * dx + dy * dy);
                         if (dist > 1.f) {
                             // 平滑追踪：速度逐渐转向玩家方向
@@ -829,9 +1113,11 @@ int main() {
                         }
                     }
 
-                    // 移动敌人
-                    enemies[i].x += enemies[i].vx * dt;
-                    enemies[i].y += enemies[i].vy * dt;
+                    // 移动敌人（冰冻时由场控 tick 保持静止）
+                    if (enemy_can_move) {
+                        enemies[i].x += enemies[i].vx * dt;
+                        enemies[i].y += enemies[i].vy * dt;
+                    }
 
                     // 敌人飞出屏幕下方 → 删除
                     if (enemies[i].y > 950.f || enemies[i].x < -100.f || enemies[i].x > 900.f) {
@@ -839,8 +1125,10 @@ int main() {
                         continue;
                     }
 
-                    // 检测敌人和玩家碰撞
-                    if (check_collision(
+                    // 检测敌人和玩家碰撞（倒戈单位不伤害玩家）
+                    EnemyDamageable enemy_contact(enemies[i]);
+                    if (enemy_contact.hurts_player_on_contact()
+                        && check_collision(
                             player.pos.x - 16.f, player.pos.y - 20.f,
                             32.f, 40.f,
                             enemies[i].x - 15.f, enemies[i].y - 15.f,
@@ -852,6 +1140,7 @@ int main() {
                         enemies.erase(enemies.begin() + i);
 
                         if (!still_alive) {
+                            cleanup_upgrade_flow(ui_system);
                             game_state = GameState::GAME_OVER;
                         }
                         continue;
@@ -862,6 +1151,12 @@ int main() {
 
                 g_boss_system.update(dt);
                 g_item_manager.update(dt);
+                item_combat::update_passive_spawns(
+                    player, g_item_manager, g_passive_timers, dt);
+
+                if (g_screen_shake > 0.01f) {
+                    g_screen_shake *= 0.88f;
+                }
 
                 // --- 投射物 vs 敌人/Boss（IDamageable 多态结算，仅 update 层）---
                 std::vector<Bullet> pending_bullets;
@@ -869,7 +1164,73 @@ int main() {
 
                 ProjectileHitCallbacks combat_cb;
                 combat_cb.on_enemy_hit =
-                    [](Enemy& enemy, int /*dmg*/, bool killed) {
+                    [&player](Enemy& enemy, int dmg, bool killed) {
+                        const bool was_betrayed = enemy.combat_betrayed;
+                        item_combat::try_apply_betrayal_on_hit(player, enemy);
+                        if (!was_betrayed && enemy.combat_betrayed) {
+                            module3::on_betrayal_applied();
+                            spawn_particles(
+                                enemy.x, enemy.y - 18.f,
+                                sf::Color(255, 120, 200), 12);
+                            spawn_particles(
+                                enemy.x, enemy.y,
+                                sf::Color(130, 160, 255), 8);
+                        }
+                        if (player.stats_ext.has_apple && !killed) {
+                            for (int ray = 0; ray < 8; ++ray) {
+                                const float ang =
+                                    static_cast<float>(ray) * 0.785398f;
+                                spawn_particles(
+                                    enemy.x + std::cos(ang) * 14.f,
+                                    enemy.y + std::sin(ang) * 14.f,
+                                    sf::Color(240, 245, 255), 3);
+                            }
+                        }
+                        if (player.stats_ext.has_godhead) {
+                            spawn_particles(
+                                enemy.x, enemy.y,
+                                sf::Color(255, 255, 220), 10);
+                            module2_fx::request_screen_flash(3);
+                        }
+                        if (player.stats_ext.has_glass_shard) {
+                            const float dist = std::sqrt(
+                                (enemy.x - player.pos.x)
+                                    * (enemy.x - player.pos.x)
+                                + (enemy.y - player.pos.y)
+                                    * (enemy.y - player.pos.y));
+                            const float mult =
+                                module3::glass_distance_multiplier(dist);
+                            module3::DamagePopup pop;
+                            pop.x = enemy.x;
+                            pop.y = enemy.y - 24.f;
+                            pop.damage = dmg;
+                            pop.frames = 24;
+                            if (mult >= 0.85f) {
+                                pop.color = sf::Color(255, 60, 60);
+                            } else if (mult >= 0.5f) {
+                                pop.color = sf::Color(240, 240, 240);
+                            } else {
+                                pop.color = sf::Color(160, 160, 160);
+                            }
+                            g_module3_damage_popups.push_back(pop);
+                            spawn_particles(
+                                enemy.x, enemy.y,
+                                sf::Color(200, 240, 255), 10);
+                        }
+                        if (enemy.combat_knockback_trail > 0) {
+                            spawn_particles(
+                                enemy.combat_shockwave_x,
+                                enemy.combat_shockwave_y,
+                                sf::Color(255, 230, 160),
+                                14);
+                            for (int gi = 0; gi < enemy.combat_ghost_count; ++gi) {
+                                spawn_particles(
+                                    enemy.combat_ghost_x[gi],
+                                    enemy.combat_ghost_y[gi],
+                                    sf::Color(210, 225, 255),
+                                    4);
+                            }
+                        }
                         if (!killed) {
                             return;
                         }
@@ -900,6 +1261,22 @@ int main() {
                     player,
                     combat_cb,
                     pending_bullets);
+
+                {
+                    const float shake =
+                        item_combat::collect_screen_shake(enemies);
+                    if (shake > g_screen_shake) {
+                        g_screen_shake = shake;
+                    }
+                    const float m2_shake =
+                        module2_fx::consume_screen_shake();
+                    if (m2_shake > g_screen_shake) {
+                        g_screen_shake = m2_shake;
+                    }
+                }
+
+                module2_fx::flush_particles(spawn_particles);
+                module2_fx::tick_screen_flash();
 
                 if (!pending_bullets.empty()) {
                     bullets.insert(
@@ -1048,6 +1425,14 @@ int main() {
                 // 每个敌人有自己的 shoot_timer，按类型执行不同的弹幕模式
                 float pad = 6.28318f;  // 2*PI 简写
                 for (auto& enemy : enemies) {
+                    if (enemy.hp <= 0) {
+                        continue;
+                    }
+                    EnemyDamageable shoot_view(enemy);
+                    if (!shoot_view.can_shoot()) {
+                        continue;
+                    }
+
                     enemy.shoot_timer -= dt;
 
                     // 根据敌人类型设定射击间隔
@@ -1070,10 +1455,24 @@ int main() {
 
                     // 基础弹速（随层数递增）
                     float spd = 180.f + float(player_level) * 15.f;
-                    float dx = player.pos.x - enemy.x;
-                    float dy = player.pos.y - enemy.y;
+                    float aim_x = player.pos.x;
+                    float aim_y = player.pos.y;
+                    if (enemy.combat_betrayed) {
+                        item_combat::resolve_betrayed_enemy_aim(
+                            enemies, enemy, aim_x, aim_y);
+                    }
+                    float dx = aim_x - enemy.x;
+                    float dy = aim_y - enemy.y;
                     float dist = std::sqrt(dx * dx + dy * dy);
                     if (dist < 1.f) dist = 1.f;
+
+                    const bool loyal_shooter = enemy.combat_betrayed;
+                    auto emit_enemy_bullet = [&](Bullet eb) {
+                        if (loyal_shooter) {
+                            item_combat::mark_loyal_enemy_bullet(eb);
+                        }
+                        enemy_bullets.push_back(eb);
+                    };
 
                     switch (enemy.enemy_type) {
                         case ENEMY_NORMAL: {
@@ -1082,7 +1481,7 @@ int main() {
                             eb.vx = dx / dist * spd; eb.vy = dy / dist * spd;
                             eb.life = 3.f; eb.homing = false;
                             eb.bullet_color = sf::Color(255, 150, 50);
-                            enemy_bullets.push_back(eb);
+                            emit_enemy_bullet(eb);
                             break;
                         }
                         case ENEMY_DOUBLE_SHOOT: {
@@ -1094,7 +1493,7 @@ int main() {
                                 eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
                                 eb.life = 3.f; eb.homing = false;
                                 eb.bullet_color = sf::Color(255, 180, 80);
-                                enemy_bullets.push_back(eb);
+                                emit_enemy_bullet(eb);
                             }
                             break;
                         }
@@ -1104,7 +1503,7 @@ int main() {
                             eb.vx = dx / dist * spd; eb.vy = dy / dist * spd;
                             eb.life = 3.f; eb.homing = false;
                             eb.bullet_color = sf::Color(200, 100, 240);
-                            enemy_bullets.push_back(eb);
+                            emit_enemy_bullet(eb);
                             break;
                         }
                         case ENEMY_ELITE: {
@@ -1116,7 +1515,7 @@ int main() {
                                 eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
                                 eb.life = 3.f; eb.homing = false;
                                 eb.bullet_color = sf::Color(220, 60, 40);
-                                enemy_bullets.push_back(eb);
+                                emit_enemy_bullet(eb);
                             }
                             break;
                         }
@@ -1130,7 +1529,7 @@ int main() {
                                 eb.vx = std::cos(a) * spd; eb.vy = std::sin(a) * spd;
                                 eb.life = 2.5f; eb.homing = false;
                                 eb.bullet_color = sf::Color(60, 180, 255, 220);
-                                enemy_bullets.push_back(eb);
+                                emit_enemy_bullet(eb);
                             }
                             break;
                         }
@@ -1144,7 +1543,7 @@ int main() {
                                 eb.vy = std::sin(a) * spd * 0.8f;
                                 eb.life = 2.0f; eb.homing = false;
                                 eb.bullet_color = sf::Color(60, 220, 120, 200);
-                                enemy_bullets.push_back(eb);
+                                emit_enemy_bullet(eb);
                             }
                             break;
                         }
@@ -1158,15 +1557,104 @@ int main() {
                                 eb.vy = std::sin(a) * spd * 0.9f;
                                 eb.life = 2.2f; eb.homing = false;
                                 eb.bullet_color = sf::Color(30, 200, 80, 220);
-                                enemy_bullets.push_back(eb);
+                                emit_enemy_bullet(eb);
                             }
                             break;
                         }
                     }
                 }
 
+                // --- 敌方弹幕 vs 倒戈单位（倒戈敌机仍会被敌方子弹击中掉血）---
+                for (size_t bi = 0; bi < enemy_bullets.size(); ) {
+                    if (enemy_bullets[bi].loyal_to_player) {
+                        ++bi;
+                        continue;
+                    }
+                    bool consumed = false;
+                    for (size_t ei = 0; ei < enemies.size(); ++ei) {
+                        if (enemies[ei].hp <= 0
+                            || !enemies[ei].combat_betrayed) {
+                            continue;
+                        }
+                        if (!check_collision(
+                                enemies[ei].x - 15.f, enemies[ei].y - 15.f,
+                                30.f, 30.f,
+                                enemy_bullets[bi].x - 4.f,
+                                enemy_bullets[bi].y - 4.f,
+                                8.f, 8.f)) {
+                            continue;
+                        }
+                        enemies[ei].hp -= 1;
+                        spawn_particles(
+                            enemies[ei].x, enemies[ei].y,
+                            enemies[ei].color, 6);
+                        if (enemies[ei].hp <= 0) {
+                            game_score += enemies[ei].score;
+                            spawn_particles(
+                                enemies[ei].x, enemies[ei].y,
+                                enemies[ei].color, 10);
+                            spawn_item_pickup(enemies[ei].x, enemies[ei].y);
+                        }
+                        consumed = true;
+                        break;
+                    }
+                    if (consumed) {
+                        enemy_bullets.erase(
+                            enemy_bullets.begin()
+                            + static_cast<std::ptrdiff_t>(bi));
+                    } else {
+                        ++bi;
+                    }
+                }
+
+                // --- 倒戈弹幕 vs 敌方阵营 ---
+                for (size_t bi = 0; bi < enemy_bullets.size(); ) {
+                    if (!enemy_bullets[bi].loyal_to_player) {
+                        ++bi;
+                        continue;
+                    }
+                    bool consumed = false;
+                    for (size_t ei = 0; ei < enemies.size(); ++ei) {
+                        if (enemies[ei].hp <= 0 || enemies[ei].combat_betrayed) {
+                            continue;
+                        }
+                        if (!check_collision(
+                                enemies[ei].x - 15.f, enemies[ei].y - 15.f,
+                                30.f, 30.f,
+                                enemy_bullets[bi].x - 4.f,
+                                enemy_bullets[bi].y - 4.f,
+                                8.f, 8.f)) {
+                            continue;
+                        }
+                        enemies[ei].hp -= 1;
+                        spawn_particles(
+                            enemies[ei].x, enemies[ei].y,
+                            combat_fx::k_betray_bullet_color, 6);
+                        if (enemies[ei].hp <= 0) {
+                            game_score += enemies[ei].score;
+                            spawn_particles(
+                                enemies[ei].x, enemies[ei].y,
+                                enemies[ei].color, 10);
+                            spawn_item_pickup(enemies[ei].x, enemies[ei].y);
+                        }
+                        consumed = true;
+                        break;
+                    }
+                    if (consumed) {
+                        enemy_bullets.erase(
+                            enemy_bullets.begin()
+                            + static_cast<std::ptrdiff_t>(bi));
+                    } else {
+                        ++bi;
+                    }
+                }
+
                 // --- 玩家被敌人子弹击中 ---
                 for (size_t i = 0; i < enemy_bullets.size(); ) {
+                    if (enemy_bullets[i].loyal_to_player) {
+                        ++i;
+                        continue;
+                    }
                     if (check_collision(
                             player.pos.x - 14.f, player.pos.y - 18.f,
                             28.f, 36.f,
@@ -1175,6 +1663,7 @@ int main() {
                         bool still_alive = player.take_damage();
                         enemy_bullets.erase(enemy_bullets.begin() + i);
                         if (!still_alive) {
+                            cleanup_upgrade_flow(ui_system);
                             game_state = GameState::GAME_OVER;
                         }
                         break;
@@ -1183,18 +1672,8 @@ int main() {
                     }
                 }
 
-                // --- 升级宝箱：下落与碰撞 ---
-                if (level_up_chest_armed) {
-                    if (!ui_system.has_active_chest()) {
-                        ui_system.spawn_item_chest(k_screen_center_x);
-                    }
-                    if (ui_system.update_item_chest(dt, player.pos, 18.f)) {
-                        ui_system.begin_item_pick(pending_level_up_options, player);
-                        game_state = GameState::LEVEL_UP;
-                    }
-                }
-
-                if (game_score >= next_level_threshold
+                if (game_state == GameState::PLAYING
+                    && game_score >= next_level_threshold
                     && !level_up_chest_armed
                     && !ui_system.has_active_chest()
                     && !ui_system.is_item_pick_active()) {
@@ -1244,6 +1723,14 @@ int main() {
             case GameState::PLAYING:
             case GameState::LEVEL_UP: {
                 window.clear(sf::Color::Black);
+                sf::View world_view(sf::FloatRect(0.f, 0.f, 800.f, 900.f));
+                if (game_state == GameState::PLAYING && g_screen_shake > 0.3f) {
+                    world_view.move(
+                        random_float(-g_screen_shake, g_screen_shake),
+                        random_float(-g_screen_shake, g_screen_shake));
+                }
+                window.setView(world_view);
+
                 ui_system.draw_room_background(window, player_level);
 
                 // --- 绘制道具拾取物 ---
@@ -1278,23 +1765,18 @@ int main() {
 
                 HaemolacriaSystem::render_orbs(window, bullets);
 
-                // --- 绘制玩家子弹（半径由 generation 分支决定）---
                 for (auto& b : bullets) {
                     if (b.is_haemolacria_orb || b.is_dead) {
                         continue;
                     }
-                    sf::CircleShape circle(b.radius);
-                    circle.setOrigin(b.radius, b.radius);
-                    circle.setPosition(b.x, b.y);
-                    sf::Color c = b.bullet_color;
-                    if (b.is_haemolacria_shard) {
-                        c = sf::Color(180, 20, 30, 255);
-                    } else if (b.has_parasite) {
-                        c = sf::Color(140, 255, 100, c.a);
+                    if (b.module3_apple_razor || b.module3_betrayal_tear
+                        || b.module3_godhead || b.module3_glass) {
+                        module3::render_player_bullet(window, b, g_frame_count);
                     }
-                    circle.setFillColor(c);
-                    window.draw(circle);
                 }
+                ui_system.draw_player_tears(window, player, bullets);
+
+                module3::render_damage_popups(window, g_module3_damage_popups);
 
                 // --- 绘制敌人子弹 ---
                 for (auto& eb : enemy_bullets) {
@@ -1310,6 +1792,20 @@ int main() {
                     // === 根据类型绘制不同外观 ===
                     sf::Color outline_c = sf::Color(80, 80, 80);
                     float outline_t = 2.f;
+                    sf::Color body_color = enemy.color;
+                    if (enemy.combat_betray_blend > 0) {
+                        const float t =
+                            1.f - static_cast<float>(enemy.combat_betray_blend)
+                                / 18.f;
+                        body_color = sf::Color(
+                            static_cast<sf::Uint8>(255 * t + 140 * (1.f - t)),
+                            static_cast<sf::Uint8>(0 * t + 80 * (1.f - t)),
+                            static_cast<sf::Uint8>(0 * t + 200 * (1.f - t)));
+                    }
+                    if (enemy.combat_betrayed) {
+                        outline_c = sf::Color(100, 80, 220);
+                        body_color = enemy.color;
+                    }
 
                     switch (enemy.enemy_type) {
                         case ENEMY_BLOOM: {
@@ -1318,7 +1814,7 @@ int main() {
                             body.setOrigin(static_cast<float>(enemy.width) / 2.f,
                                           static_cast<float>(enemy.width) / 2.f);
                             body.setPosition(enemy.x, enemy.y);
-                            body.setFillColor(enemy.color);
+                            body.setFillColor(body_color);
                             body.setOutlineThickness(outline_t);
                             body.setOutlineColor(sf::Color(40, 120, 200));
                             window.draw(body);
@@ -1336,7 +1832,7 @@ int main() {
                             diamond.setPoint(2, sf::Vector2f(0.f, hh));
                             diamond.setPoint(3, sf::Vector2f(-hw, 0.f));
                             diamond.setPosition(enemy.x, enemy.y);
-                            diamond.setFillColor(enemy.color);
+                            diamond.setFillColor(body_color);
                             diamond.setOutlineThickness(outline_t);
                             diamond.setOutlineColor(sf::Color(30, 150, 60));
                             window.draw(diamond);
@@ -1351,7 +1847,7 @@ int main() {
                                 static_cast<float>(enemy.width) / 2.f,
                                 static_cast<float>(enemy.height) / 2.f);
                             body.setPosition(enemy.x, enemy.y);
-                            body.setFillColor(enemy.color);
+                            body.setFillColor(body_color);
                             body.setOutlineThickness(outline_t);
 
                             // 类型特化轮廓色
@@ -1389,15 +1885,20 @@ int main() {
                         hp_fill.setFillColor(sf::Color(255, 50, 50));
                         window.draw(hp_fill);
                     }
+
+                    item_combat::draw_enemy_combat_overlay(
+                        window, enemy, g_frame_count);
+                }
+
+                g_item_manager.render_passives(window);
+
+                // 冰冻/倒戈状态行画在最上层（避免被冰弹遮挡）
+                for (const auto& enemy : enemies) {
+                    item_combat::draw_enemy_status_row(window, enemy);
                 }
 
                 ui_system.draw_item_chest(window);
 
-                ui_system.draw_isaac_player(
-                    window, player.pos.x, player.pos.y, isaac_anim_time);
-                draw_player_status_fx(window, player);
-
-                BabySystem::render(window, player);
                 BrimstoneLaser::render(window, player);
                 SplitLaserSystem::render(window, split_lasers);
 
@@ -1413,6 +1914,14 @@ int main() {
                     window.draw(circle);
                 }
 
+                ui_system.draw_isaac_player(
+                    window, player.pos.x, player.pos.y, isaac_anim_time);
+                draw_player_status_fx(window, player);
+                if (player.stats_ext.mirror_clone_level > 0) {
+                    draw_clone_shape(window, player);
+                }
+                BabySystem::render(window, player);
+
                 if (game_state == GameState::PLAYING
                     || game_state == GameState::LEVEL_UP) {
                     HudOverlay hud_overlay;
@@ -1425,11 +1934,11 @@ int main() {
                         window, player, player_level, game_score, hud_overlay);
                 }
 
+                window.setView(sf::View(sf::FloatRect(0.f, 0.f, 800.f, 900.f)));
                 break;
             }
 
             case GameState::GAME_OVER:
-                window.clear(sf::Color(20, 10, 30));
                 ui_system.draw_game_over(
                     window, game_score, player_level, player.item_count);
                 break;
@@ -1439,7 +1948,43 @@ int main() {
             ui_system.draw_item_pick(window);
         }
 
-        // 交换缓冲区（显示画面）
+                draw_debug_overlay(window, ui_system);
+
+                for (const item_ui::pickup_toast& toast :
+                     item_pickup_toast_queue()) {
+                    if (toast.frames_remaining > 0) {
+                        module3::draw_pickup_toast_center(
+                            window,
+                            ui_system.hud_font(),
+                            ui_system.has_font(),
+                            toast.display_text,
+                            toast.frames_remaining);
+                    }
+                }
+                module3::draw_status_icons(
+                    window,
+                    ui_system.hud_font(),
+                    ui_system.has_font(),
+                    player,
+                    12.f,
+                    148.f);
+                module3::draw_betray_popup(
+                    window,
+                    ui_system.hud_font(),
+                    ui_system.has_font(),
+                    module3::betray_popup_frames());
+
+                const sf::Uint8 flash_a =
+                    module2_fx::screen_flash_alpha();
+                if (flash_a > 0) {
+                    sf::RectangleShape flash_overlay(
+                        sf::Vector2f(800.f, 900.f));
+                    flash_overlay.setFillColor(
+                        sf::Color(255, 255, 255, flash_a));
+                    window.draw(flash_overlay);
+                }
+
+                // 交换缓冲区（显示画面）
         window.display();
     }
 
