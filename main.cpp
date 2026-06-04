@@ -1,45 +1,4 @@
-﻿/*
- * main.cpp - 飞机大战：以撒的结合 风格重制
- * 版本：v3.3 (2026-06-02)
- * 技术栈：C++17 / SFML 2.6.x
- * 平台：Windows x64 (Visual Studio 2022)
- *
- * 更新日志：
- *   v3.3 - 血量掉落：击杀敌人5%概率掉红心(+1HP)
- *          鼠标瞄准：子弹沿鼠标方向发射（手动控制方向）
- *          淫魔叠加：分身数量可叠加（最多5个），围绕玩家分布
- *   v3.2 - 血量平方递增：base_hp = 2 + layer^2
- *   v3.1 - 简化波次：每层1波，打完休息进下一层
- *          每层敌人数 = 8 + 层数×5（L1=13, L6=38）
- *          清除后休息 3.5 秒，未升级则刷新本层
- *   v3.0 - 波次系统：替代持续刷怪，PvZ式一波一波来
- *          消灭当前波全部敌人后休息 3.5 秒
- *          每层 3-8 波（L1=3, L6=8），波内敌人渐次增多
- *          波间公告文字："一大波敌人即将来袭！"
- *   v2.9 - 分层怪物难度系统：6层递增，7种敌人类型，东方弹幕设计
- *          层数=player_level，敌人数量×1.5/层，L1-L6逐层解锁新敌人
- *          开花弹（圆形散射）、螺旋弹（旋转弹幕）、追踪移动、精英怪
- *   v2.8 - 敌人击杀分值减半（50→25 基数, 30→15 乘数）
- *   v2.5 - 掉落间隔 4000→8000, 掉率 15%→8%
- *   v2.3 - 掉落间隔改为固定 4000 分
- *   v2.2 - 掉落门槛提高：首掉1500分，间隔1200分
- *   v2.1 - 道具掉落增加分数门槛（首掉1000分，每次+800分递增）
- *   v2.0 - 怪物能力随分数递增 + 掉落冷却 20s + 升级节奏减慢
- *   v1.0 - 初始以撒版（19种道具/三选一升级/追踪子弹/护盾/分身）
- * 命名规范：全小写下划线命名法 (snake_case)
- * 编码：UTF-8 with BOM
- *
- * 核心特性：
- * 1. 以撒风格 PlayerStats 属性系统
- * 2. 19 种道具（apply_item 动态修改属性）
- * 3. 升级三选一 UI 面板
- * 4. 定时效果系统（追踪/隐形/护盾/伤害增强）
- * 5. 粒子特效、分数系统
- * 6. v2.9 分层难度：6层递进、7种敌人、东方弹幕
- * 7. v3.1 简化波次：每层1波，打完休息进下一层
- */
-
-#include <SFML/Graphics.hpp>      // 图形渲染（窗口、形状、文字）
+﻿#include <SFML/Graphics.hpp>      // 图形渲染（窗口、形状、文字）
 #include <vector>                  // 动态数组（子弹/敌人/粒子列表）
 #include <cmath>                   // 数学函数（sin/cos/sqrt）
 #include <random>                  // 随机数引擎
@@ -668,8 +627,12 @@ void draw_player_status_fx(sf::RenderWindow& window, const Player& player) {
     if (player.invisible_timer > 0) {
         sf::CircleShape invis(
             20.f + std::sin(static_cast<float>(player.invisible_timer) * 0.2f) * 4.f);
-        invis.setOrigin(invis.getRadius(), invis.getRadius());
-        invis.setPosition(player.pos);
+        
+            .setOrigin(
+            .getRadius(), 
+        .getRadius());
+        
+        .setPosition(player.pos);
         invis.setFillColor(sf::Color::Transparent);
         invis.setOutlineThickness(1.f);
         invis.setOutlineColor(sf::Color(100, 100, 255, 100));
@@ -677,56 +640,56 @@ void draw_player_status_fx(sf::RenderWindow& window, const Player& player) {
     }
 }
 
-/*
- * draw_player_shape() - 绘制玩家飞机（三角形）
- *
- * 以撒风格的玩家外观
- */
-void draw_player_shape(sf::RenderWindow& window, const Player& player) {
-    // 主体（圆角三角形）
-    sf::ConvexShape body;
-    body.setPointCount(3);
-    body.setPoint(0, sf::Vector2f(0.f, -20.f));    // 顶部
-    body.setPoint(1, sf::Vector2f(-16.f, 16.f));    // 左下
-    body.setPoint(2, sf::Vector2f(16.f, 16.f));     // 右下
+// /*
+//  * draw_player_shape() - 绘制玩家飞机（三角形）
+//  *
+//  * 以撒风格的玩家外观
+//  */
+// void draw_player_shape(sf::RenderWindow& window, const Player& player) {
+//     // 主体（圆角三角形）
+//     sf::ConvexShape body;
+//     body.setPointCount(3);
+//     body.setPoint(0, sf::Vector2f(0.f, -20.f));    // 顶部
+//     body.setPoint(1, sf::Vector2f(-16.f, 16.f));    // 左下
+//     body.setPoint(2, sf::Vector2f(16.f, 16.f));     // 右下
 
-    // 根据状态设置颜色
-    sf::Color body_color;
-    if (player.invisible_timer > 0) {
-        body_color = sf::Color(100, 100, 255, 128);
-    } else if (player.shield_timer != 0) {
-        body_color = sf::Color(255, 255, 150);
-    } else {
-        body_color = sf::Color(255, 255, 255);
-    }
-    body.setFillColor(body_color);
-    body.setOutlineThickness(2.f);
-    body.setOutlineColor(sf::Color(100, 100, 100));
-    body.setPosition(player.pos);
-    window.draw(body);
+//     // 根据状态设置颜色
+//     sf::Color body_color;
+//     if (player.invisible_timer > 0) {
+//         body_color = sf::Color(100, 100, 255, 128);
+//     } else if (player.shield_timer != 0) {
+//         body_color = sf::Color(255, 255, 150);
+//     } else {
+//         body_color = sf::Color(255, 255, 255);
+//     }
+//     body.setFillColor(body_color);
+//     body.setOutlineThickness(2.f);
+//     body.setOutlineColor(sf::Color(100, 100, 100));
+//     body.setPosition(player.pos);
+//     window.draw(body);
 
-    // 护盾光环（有护盾时外圈发光）
-    if (player.shield_timer != 0) {
-        sf::CircleShape shield_circle(22.f);
-        shield_circle.setOrigin(22.f, 22.f);
-        shield_circle.setPosition(player.pos);
-        shield_circle.setFillColor(sf::Color::Transparent);
-        shield_circle.setOutlineThickness(2.f);
-        shield_circle.setOutlineColor(sf::Color(255, 255, 100, 150));
-        window.draw(shield_circle);
-    }
+//     // 护盾光环（有护盾时外圈发光）
+//     if (player.shield_timer != 0) {
+//         sf::CircleShape shield_circle(22.f);
+//         shield_circle.setOrigin(22.f, 22.f);
+//         shield_circle.setPosition(player.pos);
+//         shield_circle.setFillColor(sf::Color::Transparent);
+//         shield_circle.setOutlineThickness(2.f);
+//         shield_circle.setOutlineColor(sf::Color(255, 255, 100, 150));
+//         window.draw(shield_circle);
+//     }
 
-    // 隐形波纹
-    if (player.invisible_timer > 0) {
-        sf::CircleShape invis(20.f + std::sin(static_cast<float>(player.invisible_timer) * 0.2f) * 4.f);
-        invis.setOrigin(invis.getRadius(), invis.getRadius());
-        invis.setPosition(player.pos);
-        invis.setFillColor(sf::Color::Transparent);
-        invis.setOutlineThickness(1.f);
-        invis.setOutlineColor(sf::Color(100, 100, 255, 100));
-        window.draw(invis);
-    }
-}
+//     // 隐形波纹
+//     if (player.invisible_timer > 0) {
+//         sf::CircleShape invis(20.f + std::sin(static_cast<float>(player.invisible_timer) * 0.2f) * 4.f);
+//         invis.setOrigin(invis.getRadius(), invis.getRadius());
+//         invis.setPosition(player.pos);
+//         invis.setFillColor(sf::Color::Transparent);
+//         invis.setOutlineThickness(1.f);
+//         invis.setOutlineColor(sf::Color(100, 100, 255, 100));
+//         window.draw(invis);
+//     }
+// }
 
 /*
  * draw_clone_shape() - 绘制分身
@@ -780,14 +743,12 @@ int main() {
     // L"飞机大战 - 以撒版" - 窗口标题（宽字符）
     sf::RenderWindow window(
         sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT),
-        L"飞机大战 [B或I=冰弹测试]"
+        L"飞机大战以撒版"
     );
     window.setFramerateLimit(60);  // 限制 60 FPS
 
     UISystem ui_system;
     ui_system.initialize();
-    append_debug_log("=== game start (look for debug.log next to exe) ===");
-    show_debug_banner(L"新版本已启动 | Enter开始 | B或I发射冰弹", 300);
     g_debug_flash_frames = 180;
 
     // ===== 创建游戏对象 =====
@@ -823,120 +784,124 @@ int main() {
                     }
                 }
 
-                const bool ice_test_key =
-                    event.key.code == sf::Keyboard::B
-                    || event.key.code == sf::Keyboard::I;
-                if (ice_test_key) {
-                    append_debug_log(
-                        game_state == GameState::PLAYING
-                            ? "[ice] key pressed in PLAYING"
-                            : "[ice] key pressed NOT in game");
-                    if (game_state != GameState::PLAYING) {
-                        show_debug_banner(
-                            L"请先 Enter 开始游戏，再点游戏窗口按 B 或 I");
-                    } else {
-                        const bool loaded =
-                            load_test_case(player, "test_16_ice_baby");
-                        if (!loaded) {
-                            item_combat::enable_ice_baby(player);
-                            append_debug_log("[ice] json fail, enabled manual");
-                        }
-                        item_combat::spawn_ice_cube_baby(
-                            player, g_item_manager);
-                        const std::size_t n =
-                            g_item_manager.passives().size();
-                        show_debug_banner(
-                            L"OK ice spawned! count="
-                            + std::to_wstring(n));
-                        append_debug_log("[ice] spawned passives");
-                        spawn_particles(
-                            player.pos.x, player.pos.y - 20.f,
-                            sf::Color(120, 230, 255), 16);
-                    }
-                }
+    ///////------------------------------------------------------------------------------ 用于测试的代码 -----
+                // const bool ice_test_key =
+                //     event.key.code == sf::Keyboard::B
+                //     || event.key.code == sf::Keyboard::I;
+                // if (ice_test_key) {
+                //     append_debug_log(
+                //         game_state == GameState::PLAYING
+                //             ? "[ice] key pressed in PLAYING"
+                //             : "[ice] key pressed NOT in game");
+                //     if (game_state != GameState::PLAYING) {
+                //         show_debug_banner(
+                //             L"请先 Enter 开始游戏，再点游戏窗口按 B 或 I");
+                //     } else {
+                //         const bool loaded =
+                //             load_test_case(player, "test_16_ice_baby");
+                //         if (!loaded) {
+                //             item_combat::enable_ice_baby(player);
+                //             append_debug_log("[ice] json fail, enabled manual");
+                //         }
+                //         item_combat::spawn_ice_cube_baby(
+                //             player, g_item_manager);
+                //         const std::size_t n =
+                //             g_item_manager.passives().size();
+                //         show_debug_banner(
+                //             L"OK ice spawned! count="
+                //             + std::to_wstring(n));
+                //         append_debug_log("[ice] spawned passives");
+                //         spawn_particles(
+                //             player.pos.x, player.pos.y - 20.f,
+                //             sf::Color(120, 230, 255), 16);
+                //     }
+                // }
 
                 // 调试：数字键加载 test_items.json / test_combat_status.json（需 PLAYING）
-                if (game_state == GameState::PLAYING) {
-                    if (!event.key.shift
-                        && (event.key.code == sf::Keyboard::Num1
-                            || event.key.code == sf::Keyboard::Numpad1)) {
-                        load_test_case(player, "test_01_pure_brimstone");
-                    } else if (!event.key.shift
-                               && (event.key.code == sf::Keyboard::Num2
-                                   || event.key.code == sf::Keyboard::Numpad2)) {
-                        load_test_case(player, "test_02_brimstone_spoon_2020");
-                    } else if (!event.key.shift
-                               && (event.key.code == sf::Keyboard::Num3
-                                   || event.key.code == sf::Keyboard::Numpad3)) {
-                        load_test_case(player, "test_03_army_of_babies");
-                    } else if (!event.key.shift
-                               && (event.key.code == sf::Keyboard::Num4
-                                   || event.key.code == sf::Keyboard::Numpad4)) {
-                        load_test_case(player, "test_04_parasite");
-                    } else if (event.key.code == sf::Keyboard::Num5 ||
-                               event.key.code == sf::Keyboard::Numpad5) {
-                        load_test_case(player, "test_05_brimstone_parasite");
-                    } else if (event.key.code == sf::Keyboard::Num6 ||
-                               event.key.code == sf::Keyboard::Numpad6) {
-                        load_test_case(player, "test_06_haemolacria");
-                    } else if (event.key.code == sf::Keyboard::Num7 ||
-                               event.key.code == sf::Keyboard::Numpad7) {
-                        load_test_case(player, "test_07_mirror_clone");
-                    } else if (event.key.code == sf::Keyboard::Num8 ||
-                               event.key.code == sf::Keyboard::Numpad8) {
-                        load_test_case(player, "test_08_item_panel_full");
-                    } else if (event.key.code == sf::Keyboard::Num9 ||
-                               event.key.code == sf::Keyboard::Numpad9) {
-                        load_test_case(player, "test_09_speed_debuff_ui");
-                    } else if (event.key.code == sf::Keyboard::Num0 ||
-                               event.key.code == sf::Keyboard::Numpad0) {
-                        load_test_case(player, "test_10_glass_apple");
-                    } else if (event.key.code == sf::Keyboard::F1) {
-                        load_test_case(player, "test_11_tiny_planet");
-                    } else if (event.key.code == sf::Keyboard::F2) {
-                        load_test_case(player, "test_12_combat_manual");
-                    } else if (event.key.code == sf::Keyboard::F3) {
-                        load_test_case(player, "test_13_apply_slow");
-                    } else if (event.key.code == sf::Keyboard::F4) {
-                        load_test_case(player, "test_14_module2_projectiles");
-                        item_combat::spawn_demo_module2_projectiles(
-                            player, g_item_manager);
-                    } else if (event.key.code == sf::Keyboard::F5
-                               && !enemies.empty()) {
-                        EnemyDamageable view(enemies.front());
-                        view.applyFreeze(300);
-                    } else if (event.key.code == sf::Keyboard::F6
-                               && !enemies.empty()) {
-                        item_combat::apply_betrayal_effect(enemies.front());
-                    } else if (event.key.code == sf::Keyboard::F8) {
-                        load_test_case(player, "test_17_betrayal");
-                    } else if (event.key.code == sf::Keyboard::F7
-                               && !enemies.empty()) {
-                        EnemyDamageable view(enemies.front());
-                        view.applyKnockbackRadial(
-                            combat_fx::make_spike_nail_knockback(
-                                player.pos.x, player.pos.y));
-                    } else if (event.key.code == sf::Keyboard::F11) {
-                        load_test_case(player, "test_15_spike_nail");
-                        item_combat::spawn_spike_nail_burst(
-                            player, g_item_manager, player.get_damage());
-                    } else if (event.key.code == sf::Keyboard::F9) {
-                        load_test_case(player, "test_18_module3_tears");
-                    } else if (event.key.shift
-                               && event.key.code == sf::Keyboard::Num1) {
-                        module3::enable_single_item_test(player, "apple");
-                    } else if (event.key.shift
-                               && event.key.code == sf::Keyboard::Num2) {
-                        module3::enable_single_item_test(player, "betrayal");
-                    } else if (event.key.shift
-                               && event.key.code == sf::Keyboard::Num3) {
-                        module3::enable_single_item_test(player, "godhead");
-                    } else if (event.key.shift
-                               && event.key.code == sf::Keyboard::Num4) {
-                        module3::enable_single_item_test(
-                            player, "glass_shard");
-                    }
-                }
+                // if (game_state == GameState::PLAYING) {
+                //     if (!event.key.shift
+                //         && (event.key.code == sf::Keyboard::Num1
+                //             || event.key.code == sf::Keyboard::Numpad1)) {
+                //         load_test_case(player, "test_01_pure_brimstone");
+                //     } else if (!event.key.shift
+                //                && (event.key.code == sf::Keyboard::Num2
+                //                    || event.key.code == sf::Keyboard::Numpad2)) {
+                //         load_test_case(player, "test_02_brimstone_spoon_2020");
+                //     } else if (!event.key.shift
+                //                && (event.key.code == sf::Keyboard::Num3
+                //                    || event.key.code == sf::Keyboard::Numpad3)) {
+                //         load_test_case(player, "test_03_army_of_babies");
+                //     } else if (!event.key.shift
+                //                && (event.key.code == sf::Keyboard::Num4
+                //                    || event.key.code == sf::Keyboard::Numpad4)) {
+                //         load_test_case(player, "test_04_parasite");
+                //     } else if (event.key.code == sf::Keyboard::Num5 ||
+                //                event.key.code == sf::Keyboard::Numpad5) {
+                //         load_test_case(player, "test_05_brimstone_parasite");
+                //     } else if (event.key.code == sf::Keyboard::Num6 ||
+                //                event.key.code == sf::Keyboard::Numpad6) {
+                //         load_test_case(player, "test_06_haemolacria");
+                //     } else if (event.key.code == sf::Keyboard::Num7 ||
+                //                event.key.code == sf::Keyboard::Numpad7) {
+                //         load_test_case(player, "test_07_mirror_clone");
+                //     } else if (event.key.code == sf::Keyboard::Num8 ||
+                //                event.key.code == sf::Keyboard::Numpad8) {
+                //         load_test_case(player, "test_08_item_panel_full");
+                //     } else if (event.key.code == sf::Keyboard::Num9 ||
+                //                event.key.code == sf::Keyboard::Numpad9) {
+                //         load_test_case(player, "test_09_speed_debuff_ui");
+                //     } else if (event.key.code == sf::Keyboard::Num0 ||
+                //                event.key.code == sf::Keyboard::Numpad0) {
+                //         load_test_case(player, "test_10_glass_apple");
+                //     } else if (event.key.code == sf::Keyboard::F1) {
+                //         load_test_case(player, "test_11_tiny_planet");
+                //     } else if (event.key.code == sf::Keyboard::F2) {
+                //         load_test_case(player, "test_12_combat_manual");
+                //     } else if (event.key.code == sf::Keyboard::F3) {
+                //         load_test_case(player, "test_13_apply_slow");
+                //     } else if (event.key.code == sf::Keyboard::F4) {
+                //         load_test_case(player, "test_14_module2_projectiles");
+                //         item_combat::spawn_demo_module2_projectiles(
+                //             player, g_item_manager);
+                //     } else if (event.key.code == sf::Keyboard::F5
+                //                && !enemies.empty()) {
+                //         EnemyDamageable view(enemies.front());
+                //         view.applyFreeze(300);
+                //     } else if (event.key.code == sf::Keyboard::F6
+                //                && !enemies.empty()) {
+                //         item_combat::apply_betrayal_effect(enemies.front());
+                //     } else if (event.key.code == sf::Keyboard::F8) {
+                //         load_test_case(player, "test_17_betrayal");
+                //     } else if (event.key.code == sf::Keyboard::F7
+                //                && !enemies.empty()) {
+                //         EnemyDamageable view(enemies.front());
+                //         view.applyKnockbackRadial(
+                //             combat_fx::make_spike_nail_knockback(
+                //                 player.pos.x, player.pos.y));
+                //     } else if (event.key.code == sf::Keyboard::F11) {
+                //         load_test_case(player, "test_15_spike_nail");
+                //         item_combat::spawn_spike_nail_burst(
+                //             player, g_item_manager, player.get_damage());
+                //     } else if (event.key.code == sf::Keyboard::F9) {
+                //         load_test_case(player, "test_18_module3_tears");
+                //     } else if (event.key.shift
+                //                && event.key.code == sf::Keyboard::Num1) {
+                //         module3::enable_single_item_test(player, "apple");
+                //     } else if (event.key.shift
+                //                && event.key.code == sf::Keyboard::Num2) {
+                //         module3::enable_single_item_test(player, "betrayal");
+                //     } else if (event.key.shift
+                //                && event.key.code == sf::Keyboard::Num3) {
+                //         module3::enable_single_item_test(player, "godhead");
+                //     } else if (event.key.shift
+                //                && event.key.code == sf::Keyboard::Num4) {
+                //         module3::enable_single_item_test(
+                //             player, "glass_shard");
+                //     }
+                // }
+
+
+
             }
         }
 
@@ -1694,6 +1659,7 @@ int main() {
                 break;
         }
 
+        
         // ========== 渲染 ==========
         switch (game_state) {
             case GameState::MENU:
@@ -1719,7 +1685,7 @@ int main() {
 
                 ui_system.draw_room_background(window, player_level);
 
-                // --- 绘制道具拾取物 ---
+                // --- 绘制道具拾取物 --- RectangleShape是 SFML 提供的可绘制图形对象
                 for (auto& pu : power_ups) {
                     if (!pu.active) continue;
                     sf::RectangleShape rect(sf::Vector2f(20.f, 20.f));
